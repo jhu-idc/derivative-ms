@@ -1,0 +1,36 @@
+{
+  "jwt": {
+    "requireTokens": true,
+    "verifyTokens": true
+  },
+  "convert": {
+    "commandPath": "/usr/local/bin/convert",
+    "defaultMediaType": "image/jpeg",
+    "acceptedFormats": [
+      "image/jpeg",
+      "image/png",
+      "image/tiff",
+      "image/jp2"
+    ]
+  },
+  "ffmpeg": {
+    "commandPath": "/usr/local/bin/ffmpeg",
+    "defaultMediaType": "video/mp4",
+    "acceptedFormatsMap": {
+      "video/mp4": "mp4",
+      "video/x-msvideo": "avi",
+      "video/ogg": "ogg",
+      "audio/x-wav": "wav",
+      "audio/mpeg": "mp3",
+      "audio/aac": "m4a",
+      "image/jpeg": "image2pipe",
+      "image/png": "png_image2pipe"
+    }
+  },
+  "tesseract": {
+    "commandPath": "/usr/local/bin/tesseract"
+  },
+  "pdf2txt": {
+    "commandPath": "/usr/local/bin/pdftotext"
+  }
+}
