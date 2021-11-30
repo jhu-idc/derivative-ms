@@ -1,6 +1,6 @@
 # Derivative Microservices
 
-Essentially this repository contains a re-write of the Islandora microserives: houdini, homarus, hypercube, and FITS (a TODO).
+Essentially this repository contains a re-write of the Islandora microserives: houdini, homarus, hypercube, and FITS (a TODO).  It should be considered prototype-level quality.
 
 ## Motivation
 
@@ -41,6 +41,10 @@ There are a number of TODOs, but the prototype is mature enough for demonstratio
 * Dead letter queue processing: Re-processing messages from the DLQ would be nice, but the best that we may be able to do is output a log message to `stdout`, surfacing messages to graylog, for example.
 * FITS microservice: the FITS microservice needs to be implemented.
 * JWT refresh: it would be nice to implement [JWT refresh](https://auth0.com/blog/refresh-tokens-what-are-they-and-when-to-use-them/).  To my knowledge, this is not supported by Drupal, so in effect a "refresh" would mean having Drupal issue a new key to the microservice, which is basically a stand-in for Basic Auth (you'd have to use Basic Auth to get a JWT, so why not just use Basic Auth when communicating with Drupal?).  So at this point the best defense against expiring keys is to either scale up the microservices to insure messages are processed within the JWT expiry window, or simply just use Basic Auth when communicating with Drupal, and skip the use of keys.  As far as I know, none of the claims provided in the JWT are used by microserivces.
+* It is possible for a message to _not_ be handled by any handler.  This results in the message being acked anyway.  Bug?
+* Test coverage: there are no tests (eep)
+* Tesseract and pdftotext handlers are not well-exercised and may contain bugs
+* Debugging statements and files (e.g. capture of cli stderr) abound
 
 
 
