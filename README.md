@@ -1,6 +1,6 @@
 # Derivative Microservices
 
-Essentially this repository contains a re-write of the Islandora microserives: houdini, homarus, hypercube, and FITS (a TODO).  It should be considered prototype-level quality.
+Essentially this repository contains a re-write of the Islandora microserives: houdini, homarus, hypercube, and FITS (a TODO).  It should be considered prototype-level quality.  The microservices use STOMP to communicate with ActiveMQ.  [AMQ-4710](https://issues.apache.org/jira/browse/AMQ-4710) is a long-standing bug impacting the reliability of STOMP clients, so use of these microserivces requires a [patched version of ActiveMQ](https://github.com/jhu-idc/idc-isle-buildkit/pull/89).
 
 ## Motivation
 
