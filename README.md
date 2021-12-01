@@ -2,6 +2,38 @@
 
 Essentially this repository contains a re-write of the Islandora microserives: houdini, homarus, hypercube, and FITS (a TODO).  It should be considered prototype-level quality.  The microservices use STOMP to communicate with ActiveMQ.  [AMQ-4710](https://issues.apache.org/jira/browse/AMQ-4710) is a long-standing bug impacting the reliability of STOMP clients, so use of these microserivces requires a [patched version of ActiveMQ](https://github.com/jhu-idc/idc-isle-buildkit/pull/89).
 
+## Usage
+
+```shell
+$ ./derivative-ms -h
+Usage of /Users/esm/go/bin/derivative-ms:
+  -ack string
+        STOMP acknowledgment mode, e.g. 'client' or 'auto' (default "client")
+  -config string
+        Path to handler configuration file
+  -host string
+        STOMP broker host name, e.g. 'islandora-idc.traefik.me' (default "localhost")
+  -pass string
+        STOMP broker password
+  -port int
+        STOMP broker port (default 61613)
+  -queue string
+        Queue to read messages from, e.g. 'islandora-connector-homarus' or 'ActiveMQ.DLQ'
+  -user string
+        STOMP broker user name
+```
+
+| Argument | Required | Default           | Description |
+|---       |---       |---                |---
+|ack       | yes      | `client`          | STOMP message acknowledgement mode |
+|config    | no       | embedded config   | path to microservice handler configuration file |
+|host      | yes      | `localhost`       | STOMP broker host name |
+|port      | yes      | `61613`           | STOMP broker port |
+|user      | no       | ""                | STOMP broker user name |
+|pass      | no       | ""                | STOMP broker password |
+|queue     | yes      | ""                | STOMP queue to listen to |
+
+
 ## Motivation
 
 The rewrite comes down to the unpredictable scaling and behavior of the PHP-based Islandora microservices.  
