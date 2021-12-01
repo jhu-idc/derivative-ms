@@ -54,6 +54,7 @@ func main() {
 			Config: serviceConfig},
 	}
 
+	// Essentially the 'jwt' handler is required, so a valid configuration must be present
 	if err := jwtVerifierH.Configure(); err != nil {
 		log.Fatalf("error configuring stomp handler: %s", err)
 	}
@@ -100,12 +101,22 @@ func main() {
 			Config: serviceConfig},
 	}
 
-	handlers := []listener.Handler{ffmpegH, imageH, tesseractH, pdf2txtH}
+	candidateHandlers := []listener.Handler{ffmpegH, imageH, tesseractH, pdf2txtH}
+	var handlers []listener.Handler
 
-	for _, h := range handlers {
+	// Handlers that operate on the body of the message are optional.  If there is a valid configuration present for
+	// a handler, then they are included in the runtime.  If there is no valid configuration, we presume that the
+	// handler was removed for one reason or another, so we pass over it without considering it a fatal error.
+	//
+	// TODO: provide for a more robust mechanism of indicating which handlers should be required at runtime, and which
+	//   are optional.  Allow for the key of a given handler to be specified or discovered.
+	for _, h := range candidateHandlers {
+		h := h
 		configurable := h.(config.Configurable).Configure()
 		if err := configurable; err != nil {
-			log.Fatalf("error configuring handler: %s", err)
+			log.Printf("error configuring handler: %s", err)
+		} else {
+			handlers = append(handlers, h)
 		}
 	}
 
