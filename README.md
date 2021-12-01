@@ -33,7 +33,7 @@ Usage of /Users/esm/go/bin/derivative-ms:
 |pass      | no       | ""                | STOMP broker password |
 |queue     | yes      | ""                | STOMP queue to listen to |
 
-## Configuration
+## Handler Configuration
 
 Handlers are configured in a JSON file, and the application includes a default configuration that is embedded in the application itself.  So if the default configuration is suitable, then no external configuration file needs to be provided.
 
@@ -85,6 +85,13 @@ The embedded default configuration is below:
 Each handler is configured with a unique key.  Five handlers are configured by default, keyed as `jwt`, `convert`, `ffmpeg`, `tesseract`, and `pdf2txt`.  Right now there is no way to customize the list of handlers, except to _remove_ them from the configuration (this is a prototype; hard-coding the list of supported handlers is a simplifying decision).
 
 Handlers may be customized by creating a configuration file based on the embedded configuration shown above.  The embedded configuration ought to be copied to a file and edited as needed (keeping in mind that adding additional handlers or changing the keys associated with the handlers is not supported).  To use the external configuration, either create an environment variable named `DERIVATIVE_HANDLER_CONFIG` with the absolute path to the configuration, or supply the absolute path to the configuration on the command line as an argument to `-config`.
+
+## Docker Image
+
+This repository provides a minimal Docker image which provides the binary `./derivative-ms` as the `ENTRYPOINT`, and command line arguments are provided to `docker run`:
+```shell
+$ docker run --rm local/derivative-ms -host stomp-broker.example.org -user moo -pass moo -queue barn
+```
 
 ## Motivation
 
