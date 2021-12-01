@@ -33,6 +33,58 @@ Usage of /Users/esm/go/bin/derivative-ms:
 |pass      | no       | ""                | STOMP broker password |
 |queue     | yes      | ""                | STOMP queue to listen to |
 
+## Configuration
+
+Handlers are configured in a JSON file, and the application includes a default configuration that is embedded in the application itself.  So if the default configuration is suitable, then no external configuration file needs to be provided.
+
+Configuration is specified (in order of **decreasing** precedence):
+* by the `-config` command argument
+* by the `DERIVATIVE_HANDLER_CONFIG` environment variable
+* default embedded configuration  
+
+The embedded default configuration is below:
+```json
+{
+  "jwt": {
+    "requireTokens": true,
+    "verifyTokens": true
+  },
+  "convert": {
+    "commandPath": "/usr/local/bin/convert",
+    "defaultMediaType": "image/jpeg",
+    "acceptedFormats": [
+      "image/jpeg",
+      "image/png",
+      "image/tiff",
+      "image/jp2"
+    ]
+  },
+  "ffmpeg": {
+    "commandPath": "/usr/local/bin/ffmpeg",
+    "defaultMediaType": "video/mp4",
+    "acceptedFormatsMap": {
+      "video/mp4": "mp4",
+      "video/x-msvideo": "avi",
+      "video/ogg": "ogg",
+      "audio/x-wav": "wav",
+      "audio/mpeg": "mp3",
+      "audio/aac": "m4a",
+      "image/jpeg": "image2pipe",
+      "image/png": "png_image2pipe"
+    }
+  },
+  "tesseract": {
+    "commandPath": "/usr/local/bin/tesseract"
+  },
+  "pdf2txt": {
+    "commandPath": "/usr/local/bin/pdftotext"
+  }
+}
+```
+
+Each handler is configured with a unique key.  Five handlers are configured by default, keyed as `jwt`, `convert`, `ffmpeg`, `tesseract`, and `pdf2txt`.  Right now there is no way to customize the list of handlers, except to _remove_ them from the configuration (this is a prototype; hard-coding the list of supported handlers is a simplifying decision).
+
+Handlers may be customized by creating a configuration file based on the embedded configuration shown above.  The embedded configuration ought to be copied to a file and edited as needed (keeping in mind that adding additional handlers or changing the keys associated with the handlers is not supported).  To use the external configuration, either create an environment variable named `DERIVATIVE_HANDLER_CONFIG` with the absolute path to the configuration, or supply the absolute path to the configuration on the command line as an argument to `-config`.
 
 ## Motivation
 
@@ -77,6 +129,7 @@ There are a number of TODOs, but the prototype is mature enough for demonstratio
 * Test coverage: there are no tests (eep)
 * Tesseract and pdftotext handlers are not well-exercised and may contain bugs
 * Debugging statements and files (e.g. capture of cli stderr) abound
+* Specify active handlers by key on the command line
 
 
 
