@@ -74,6 +74,9 @@ func (h MessageBody) Handle(ctx context.Context, m *stomp.Message) (context.Cont
 func (h *JWTHandler) Handle(ctx context.Context, m *stomp.Message) (context.Context, error) {
 	mId := m.Header.Get("message-id")
 
+	// FIXME: we don't need a public key for RS256, and we may not need a "private" key for other algorithms.
+	//  Figure out appropriate variable names, but we shouldn't panic until we know what keys are needed from the
+	//  environment
 	var publicKey = []byte(env.GetOrPanic(VarDrupalJwtPublicKey))
 	var privateKey = []byte(env.GetOrPanic(VarDrupalJwtPrivateKey))
 
