@@ -23,6 +23,14 @@ func GetBoolOrDefault(envVar string, defaultValue bool) bool {
 	return val
 }
 
+func GetIntOrDefault(envVar string, defaultValue int) int64 {
+	val, err := strconv.ParseInt(GetOrDefault(envVar, strconv.Itoa(defaultValue)), 10, 64)
+	if err != nil {
+		log.Fatalf("Error parsing integer value from environment variable '%s': %s", envVar, err)
+	}
+	return val
+}
+
 func GetOrPanic(envVar string) string {
 	if val, ok := os.LookupEnv(envVar); ok {
 		return val

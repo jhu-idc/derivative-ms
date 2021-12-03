@@ -2,10 +2,12 @@ package listener
 
 import (
 	"context"
+	"derivative-ms/env"
 	"errors"
 	"fmt"
 	"github.com/go-stomp/stomp/v3"
 	"log"
+	"time"
 )
 
 const (
@@ -13,6 +15,7 @@ const (
 	defaultPort    = 61613
 	defaultAckMode = "client"
 	defaultUser    = ""
+	defaultTimeout = 30 * time.Second
 
 	HomarusDestination   = "/queue/islandora-connector-homarus"
 	HoudiniDestination   = "/queue/islandora-connector-houdini"
@@ -29,15 +32,17 @@ const (
 
 	// msgFullBody keys the full message body as a map[string]interface{}
 	msgFullBody = "msg.fullBody"
+
+	VarDialTimeoutSeconds = "DERIVATIVE_DIAL_TIMEOUT_SECONDS"
 )
 
 type StompListener struct {
-	Host         string
-	Port         int
-	User, Pass   string
-	Queue        string
-	AckMode      string
-	StompHandler StompHandler
+	Host          string
+	Port          int
+	User, Pass    string
+	Queue         string
+	AckMode       string
+	StompHandler  StompHandler
 }
 
 type HandlerConfig struct {
@@ -66,8 +71,10 @@ func (l *StompListener) Listen(h Handler) error {
 		err error
 	)
 
-	if c, err = stomp.Dial("tcp", fmt.Sprintf("%s:%d", l.Host, l.Port)); err != nil {
+	if c, err = l.dialWithTimeout(env.GetIntOrDefault(VarDialTimeoutSeconds, 30)); err != nil {
 		return err
+	} else {
+		log.Printf("listener: successfully connected to %s:%d, reading messages from %s", l.Host, l.Port, l.Queue)
 	}
 
 	var stompAckMode stomp.AckMode
@@ -134,4 +141,21 @@ func setListenerDefaults(l *StompListener) {
 	if l.Pass == "" {
 		l.Pass = ""
 	}
+}
+
+func (l *StompListener) dialWithTimeout(timeoutSeconds int64) (*stomp.Conn, error) {
+	var c *stomp.Conn
+	var err error
+
+	deadline := time.Now().Add(time.Duration(timeoutSeconds) * time.Second)
+
+	for attempts := 0; time.Now().Before(deadline); attempts++ {
+		if c, err := stomp.Dial("tcp", fmt.Sprintf("%s:%d", l.Host, l.Port)); err == nil {
+			return c, nil
+		}
+
+		time.Sleep(time.Second << uint(attempts))
+	}
+
+	return c, fmt.Errorf("listener: timeout expired after %d seconds attempting to dial %s:%d; underlying error was: %w", timeoutSeconds, l.Host, l.Port, err)
 }
