@@ -37,12 +37,12 @@ const (
 )
 
 type StompListener struct {
-	Host          string
-	Port          int
-	User, Pass    string
-	Queue         string
-	AckMode       string
-	StompHandler  StompHandler
+	Host         string
+	Port         int
+	User, Pass   string
+	Queue        string
+	AckMode      string
+	StompHandler StompHandler
 }
 
 type HandlerConfig struct {
@@ -150,12 +150,12 @@ func (l *StompListener) dialWithTimeout(timeoutSeconds int64) (*stomp.Conn, erro
 	deadline := time.Now().Add(time.Duration(timeoutSeconds) * time.Second)
 
 	for attempts := 0; time.Now().Before(deadline); attempts++ {
-		if c, err := stomp.Dial("tcp", fmt.Sprintf("%s:%d", l.Host, l.Port)); err == nil {
+		if c, err = stomp.Dial("tcp", fmt.Sprintf("%s:%d", l.Host, l.Port)); err == nil {
 			return c, nil
 		}
 
 		time.Sleep(time.Second << uint(attempts))
 	}
 
-	return c, fmt.Errorf("listener: timeout expired after %d seconds attempting to dial %s:%d; underlying error was: %w", timeoutSeconds, l.Host, l.Port, err)
+	return c, fmt.Errorf("listener: timeout expired after %d seconds attempting to dial %s:%d; %w", timeoutSeconds, l.Host, l.Port, err)
 }

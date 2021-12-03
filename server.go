@@ -21,6 +21,8 @@ const (
 	argPass    = "pass"
 	argAckMode = "ack"
 	argConfig  = "config"
+
+	handlerType = "handler-type"
 )
 
 var (
@@ -43,24 +45,72 @@ func main() {
 	ackMode = flag.String(argAckMode, defaultAckMode, "STOMP acknowledgment mode, e.g. 'client' or 'auto'")
 	cliConfig = flag.String(argConfig, "", "Path to handler configuration file")
 	flag.Parse()
-	serviceConfig := &config.Config{}
-	serviceConfig.Resolve(*cliConfig)
+	appConfig := &config.Config{}
+	appConfig.Resolve(*cliConfig)
 
-	var err error
+	var (
+		stompHandlers []listener.StompHandler
+		bodyHandlers  []listener.Handler
+		err           error
+	)
 
-	jwtVerifierH := &listener.JWTHandler{
-		Configuration: config.Configuration{
-			Key:    "jwt",
-			Config: serviceConfig},
+	for configKey, interfaceVal := range appConfig.Json {
+		if configVal, ok := interfaceVal.(map[string]interface{}); !ok {
+			log.Fatalf("error configuring %s: configuration key %s was expected to reference a %T, but was %T",
+				os.Args[0], configKey, map[string]interface{}{}, configVal)
+		} else {
+			if _, ok := configVal[handlerType]; !ok {
+				log.Fatalf("error configuring %s: configuration for key %s is missing required value for 'type'",
+					os.Args[0], configKey)
+			}
+
+			var h interface{}
+
+			handlerConfig := config.Configuration{
+				Key:    configKey,
+				Config: appConfig,
+			}
+
+			switch configVal[handlerType] {
+			case "JWTLoggingHandler":
+				h = &listener.JWTLoggingHandler{}
+			case "JWTHandler":
+				h = &listener.JWTHandler{}
+			case "MessageBody":
+				h = &listener.MessageBody{}
+			case "StompLoggerHandler":
+				h = &listener.StompLoggerHandler{Writer: os.Stdout}
+			case "Pdf2TextHandler":
+				h = &handler.Pdf2TextHandler{}
+			case "TesseractHandler":
+				h = &handler.TesseractHandler{}
+			case "FFMpegHandler":
+				h = &handler.FFMpegHandler{}
+			case "ImageMagickHandler":
+				h = &handler.ImageMagickHandler{}
+			default:
+				log.Fatalf("error configuring %s: unknown handler configuration type %s", os.Args[0], configVal[handlerType])
+			}
+
+			log.Printf("Configuring %s %T", configKey, h)
+			if configurable, ok := h.(config.Configurable); ok {
+				if err = configurable.Configure(handlerConfig); err != nil {
+					log.Fatalf("error configuring handler %s: %s", configKey, err)
+				}
+			}
+
+			log.Printf("activating handler: %s", configKey)
+
+			switch t := h.(type) {
+			case listener.StompHandler:
+				stompHandlers = append(stompHandlers, h.(listener.StompHandler))
+			case listener.Handler:
+				bodyHandlers = append(bodyHandlers, h.(listener.Handler))
+			default:
+				log.Fatalf("error configuring %s: unknown handler type %T", configKey, t)
+			}
+		}
 	}
-
-	// Essentially the 'jwt' handler is required, so a valid configuration must be present
-	if err := jwtVerifierH.Configure(); err != nil {
-		log.Fatalf("error configuring stomp handler: %s", err)
-	}
-
-	loggerHandler := listener.StompLoggerHandler{Writer: os.Stdout}
-	bodyH := listener.MessageBody{}
 
 	l := listener.StompListener{
 		Host:    *brokerHost,
@@ -70,59 +120,13 @@ func main() {
 		Queue:   *queue,
 		AckMode: *ackMode,
 		StompHandler: listener.CompositeStompHandler{
-			Handlers: []listener.StompHandler{loggerHandler, bodyH, jwtVerifierH},
+			Handlers: stompHandlers,
 		},
 	}
 
-	ffmpegH := &handler.FFMpegHandler{
-		Configuration: config.Configuration{
-			Key:    "ffmpeg",
-			Config: serviceConfig,
-		},
-	}
-
-	tesseractH := &handler.TesseractHandler{
-		Configuration: config.Configuration{
-			Key:    "tesseract",
-			Config: serviceConfig,
-		},
-	}
-
-	pdf2txtH := &handler.Pdf2TextHandler{
-		Configuration: config.Configuration{
-			Key:    "pdf2txt",
-			Config: serviceConfig,
-		},
-	}
-
-	imageH := &handler.ImageMagickHandler{
-		Configuration: config.Configuration{
-			Key:    "convert",
-			Config: serviceConfig},
-	}
-
-	candidateHandlers := []listener.Handler{ffmpegH, imageH, tesseractH, pdf2txtH}
-	var handlers []listener.Handler
-
-	// Handlers that operate on the body of the message are optional.  If there is a valid configuration present for
-	// a handler, then they are included in the runtime.  If there is no valid configuration, we presume that the
-	// handler was removed for one reason or another, so we pass over it without considering it a fatal error.
-	//
-	// TODO: provide for a more robust mechanism of indicating which handlers should be required at runtime, and which
-	//   are optional.  Allow for the key of a given handler to be specified or discovered.
-	for _, h := range candidateHandlers {
-		h := h
-		configurable := h.(config.Configurable).Configure()
-		if err := configurable; err != nil {
-			log.Printf("error configuring handler: %s", err)
-		} else {
-			handlers = append(handlers, h)
-		}
-	}
-
-	err = l.Listen(handler.CompositeHandler{Handlers: handlers})
+	err = l.Listen(handler.CompositeHandler{Handlers: bodyHandlers})
 	if err != nil {
-		log.Fatalf("server: exiting with error '%s'", err)
+		log.Fatalf("server: exiting with error %s", err)
 	}
 
 	os.Exit(0)

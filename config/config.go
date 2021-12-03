@@ -4,6 +4,7 @@ import (
 	"derivative-ms/env"
 	"embed"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -14,14 +15,29 @@ const (
 	VarHandlerConfig = "DERIVATIVE_HANDLER_CONFIG"
 )
 
+var (
+	// ParseErr indicates the application configuration could not be parsed
+	ParseErr = errors.New("error parsing configuration")
+	// TypeConvErr indicates that a type conversion failed
+	TypeConvErr = errors.New("error converting type")
+	// NotFoundErr indicates that the desired configuration was not found
+	NotFoundErr = errors.New("configuration not found")
+)
+
 //go:embed *.json
 var configFs embed.FS
 
+// Config maintains the application configuration, including the configuration for each Handler.  The Resolve method
+// is used to populate this Config.
 type Config struct {
+	// Embedded is true when the Location refers to a //go:embedded handler configuration
 	Embedded bool
+	// Location is a human-readable value that records the location of the handlers configuration.
 	Location string
-	Bytes    []byte
-	Json     map[string]interface{}
+	// Bytes contains the handlers configuration for the application as a slice of bytes.
+	Bytes []byte
+	// Json contains the handlers configuration for the application in JSON
+	Json map[string]interface{}
 }
 
 type Configuration struct {
@@ -30,9 +46,17 @@ type Configuration struct {
 }
 
 type Configurable interface {
-	Configure() error
+	Configure(c Configuration) error
 }
 
+// Resolve determines the location of the application configuration file and unmarshals it into JSON.  It records the
+// location and its contents in Config.
+//
+// cliValue may be the empty string.  If cliValue is provided, it is used as-is to reference a path on the filesystem.
+// If empty, then the environment variable `DERIVATIVE_HANDLER_CONFIG` is consulted.  If no value is provided for the
+// `DERIVATIVE_HANDLER_CONFIG` variable, then the embedded configuration is used.
+//
+// This method will terminate the application if a configuration cannot be found and successfully parsed.
 func (s *Config) Resolve(cliValue string) {
 	var err error
 	if cliValue == "" {
@@ -60,19 +84,33 @@ func (s *Config) Resolve(cliValue string) {
 	}
 }
 
-func StringValue(jsonBlob *map[string]interface{}, key string) (string, error) {
+// StringValue returns a portion of the application Config as a string.
+//
+// The jsonBlob represents all or a portion of the application configuration expected to contain the provided top-level
+// key.  The result is the value represented by the key as a string.
+//
+// If the key is not found, a NotFoundErr will be returned.  If the keyed value cannot be converted to a string, a
+// TypeConvErr is returned.
+func (s *Config) StringValue(jsonBlob *map[string]interface{}, key string) (string, error) {
 	if _, ok := (*jsonBlob)[key]; !ok {
-		return "", fmt.Errorf("config: missing value for '%s'", key)
+		return "", notFoundErr(key)
 	}
 
 	if _, ok := (*jsonBlob)[key].(string); !ok {
-		return "", fmt.Errorf("config: unable to convert value for '%s' from %T to %T", key, (*jsonBlob)[key], "")
+		return "", typeConversionErr(key, (*jsonBlob)[key], "")
 	}
 
 	return (*jsonBlob)[key].(string), nil
 }
 
-func SliceStringValue(jsonBlob *map[string]interface{}, key string) ([]string, error) {
+// SliceStringValue returns a portion of the application Config as a []string.
+//
+// The jsonBlob represents all or a portion of the application configuration expected to contain the provided top-level
+// key.  The result is the value represented by the key as a []string.
+//
+// If the key is not found, a NotFoundErr will be returned.  If the keyed value cannot be converted to a []string, a
+// TypeConvErr is returned.
+func (s *Config) SliceStringValue(jsonBlob *map[string]interface{}, key string) ([]string, error) {
 	var (
 		slice  []interface{}
 		result []string
@@ -80,16 +118,16 @@ func SliceStringValue(jsonBlob *map[string]interface{}, key string) ([]string, e
 	)
 
 	if _, ok = (*jsonBlob)[key]; !ok {
-		return []string{}, fmt.Errorf("config: missing value for '%s'", key)
+		return []string{}, notFoundErr(key)
 	}
 
 	if slice, ok = (*jsonBlob)[key].([]interface{}); !ok {
-		return []string{}, fmt.Errorf("config: unable to convert value for '%s' from %T to %T", key, (*jsonBlob)[key], []interface{}{})
+		return []string{}, typeConversionErr(key, (*jsonBlob)[key], []interface{}{})
 	}
 
 	for _, element := range slice {
 		if value, ok := element.(string); !ok {
-			return []string{}, fmt.Errorf("config: unable to convert value for '%s' from %T to %T", key, (*jsonBlob)[key], []interface{}{})
+			return []string{}, typeConversionErr(key, (*jsonBlob)[key], "")
 		} else {
 			result = append(result, value)
 		}
@@ -98,36 +136,63 @@ func SliceStringValue(jsonBlob *map[string]interface{}, key string) ([]string, e
 	return result, nil
 }
 
-func BoolValue(jsonBlob *map[string]interface{}, key string) (bool, error) {
+// BoolValue returns a portion of the application Config as a bool.
+//
+// The jsonBlob represents all or a portion of the application configuration expected to contain the provided top-level
+// key.  The result is the value represented by the key as a bool.
+//
+// If the key is not found, a NotFoundErr will be returned.  If the keyed value cannot be converted to a bool, a
+// TypeConvErr is returned.
+func (s *Config) BoolValue(jsonBlob *map[string]interface{}, key string) (bool, error) {
 	if _, ok := (*jsonBlob)[key]; !ok {
-		return false, fmt.Errorf("config: missing value for '%s'", key)
+		return false, notFoundErr(key)
 	}
 
 	if _, ok := (*jsonBlob)[key].(bool); !ok {
-		return false, fmt.Errorf("config: unable to convert value for '%s' from %T to %T", key, (*jsonBlob)[key], "")
+		return false, typeConversionErr(key, (*jsonBlob)[key], false)
 	}
 
 	return (*jsonBlob)[key].(bool), nil
 }
 
-func MapValue(jsonBlob *map[string]interface{}, key string) (map[string]interface{}, error) {
+// MapValue returns a portion of the application Config as a map[string]interface{}.
+//
+// The jsonBlob represents all or a portion of the application configuration expected to contain the provided top-level
+// key.  The result is the value represented by the key as a map[string]interface{}.
+//
+// If the key is not found, a NotFoundErr will be returned.  If the keyed value cannot be converted to a
+// map[string]interface{}, a TypeConvErr is returned.
+func (s *Config) MapValue(jsonBlob *map[string]interface{}, key string) (map[string]interface{}, error) {
 	if _, ok := (*jsonBlob)[key]; !ok {
-		return map[string]interface{}{}, fmt.Errorf("config: missing value for '%s'", key)
+		return map[string]interface{}{}, notFoundErr(key)
 	}
 
 	if _, ok := (*jsonBlob)[key].(map[string]interface{}); !ok {
-		return map[string]interface{}{}, fmt.Errorf("config: unable to convert value for '%s' from %T to %T", key, (*jsonBlob)[key], map[string]interface{}{})
+		return map[string]interface{}{}, typeConversionErr(key, (*jsonBlob)[key], map[string]interface{}{})
 	}
 
 	return (*jsonBlob)[key].(map[string]interface{}), nil
 }
 
-func (c *Configuration) UnmarshalConfig() (*map[string]interface{}, error) {
+// UnmarshalHandlerConfig unmarshals a Handler configuration from Config, based on the Configuration.Key.  If the key
+// is missing, or the configuration cannot be parsed, an error is returned.
+func (c *Configuration) UnmarshalHandlerConfig() (*map[string]interface{}, error) {
 	var err error
 	var handlerConfig map[string]interface{}
 
-	if handlerConfig, err = MapValue(&c.Json, c.Key); err != nil {
+	if handlerConfig, err = c.MapValue(&c.Json, c.Key); err != nil {
 		return nil, fmt.Errorf("config: unable to configure handler with key '%s': %w", c.Key, err)
 	}
 	return &handlerConfig, nil
+}
+
+// Answers an error such that errors.Is(err, NotFoundErr) == true
+func notFoundErr(key string) error {
+	return fmt.Errorf("config: %w: '%s'", NotFoundErr, key)
+}
+
+// Answers an error such that errors.Is(err, TypeConvErr) == true.  srcType and targetType are *instances* of the source
+// and target types.
+func typeConversionErr(key string, srcType, targetType interface{}) error {
+	return fmt.Errorf("config: %w: unable to convert value for configuration key '%s' from %T to %T", TypeConvErr, key, srcType, targetType)
 }

@@ -1,9 +1,20 @@
 {
+  "jwt-logger": {
+    "handler-type": "JWTLoggingHandler"
+  },
   "jwt": {
+    "handler-type": "JWTHandler",
     "requireTokens": true,
     "verifyTokens": true
   },
+  "body": {
+    "handler-type": "MessageBody"
+  },
+  "stomp-logger": {
+    "handler-type": "StompLoggerHandler"
+  },
   "convert": {
+    "handler-type": "ImageMagickHandler",
     "commandPath": "/usr/local/bin/convert",
     "defaultMediaType": "image/jpeg",
     "acceptedFormats": [
@@ -14,6 +25,7 @@
     ]
   },
   "ffmpeg": {
+    "handler-type": "FFMpegHandler",
     "commandPath": "/usr/local/bin/ffmpeg",
     "defaultMediaType": "video/mp4",
     "acceptedFormatsMap": {
@@ -28,9 +40,11 @@
     }
   },
   "tesseract": {
+    "handler-type": "TesseractHandler",
     "commandPath": "/usr/local/bin/tesseract"
   },
   "pdf2txt": {
+    "handler-type": "Pdf2TextHandler",
     "commandPath": "/usr/local/bin/pdftotext"
   }
 }

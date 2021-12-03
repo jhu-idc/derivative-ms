@@ -45,6 +45,10 @@ type JWTHandler struct {
 	VerifyTokens         bool `json:"verifyTokens"`
 }
 
+type JWTLoggingHandler struct {
+	config.Configuration
+}
+
 type StompLoggerHandler struct {
 	Writer io.Writer
 }
@@ -71,19 +75,86 @@ func (h MessageBody) Handle(ctx context.Context, m *stomp.Message) (context.Cont
 	return context.WithValue(context.WithValue(ctx, MsgBody, instance), MsgDestination, m.Destination), nil
 }
 
+func (h MessageBody) Configure(config.Configuration) error {
+	// no-op
+	return nil
+}
+
+func (h *JWTLoggingHandler) Configure(c config.Configuration) error {
+	// no-op
+	return nil
+}
+
+func (h *JWTLoggingHandler) Handle(ctx context.Context, m *stomp.Message) (context.Context, error) {
+	var (
+		rawToken []byte
+		token    *jwt.Token
+		err      error
+	)
+
+	mid := m.Header.Get("message-id")
+
+	if authHeader := m.Header.Get("Authorization"); authHeader == "" {
+		// token not found on the message
+		log.Printf("handler: no JWT found on the message with id '%s'", mid)
+		return ctx, nil
+	} else {
+		if strings.HasPrefix(authHeader, "Bearer ") {
+			rawToken = []byte(authHeader[len("Bearer "):])
+		} else {
+			rawToken = []byte(authHeader)
+		}
+	}
+
+	if token, err = jwt.ParseNoVerify(rawToken); err != nil {
+		// token not parsable
+		log.Printf("handler: JWT token could not be parsed from message: %s", err)
+		return ctx, nil
+	}
+
+	err = verify(token, []byte(env.GetOrDefault(VarDrupalJwtPrivateKey, "")), []byte(env.GetOrDefault(VarDrupalJwtPublicKey, "")))
+
+	if err != nil {
+		log.Printf("handler: JWT could not be verified for message-id '%s': %s", mid, err)
+	} else {
+		log.Printf("handler: JWT verified for message-id '%s'", mid)
+	}
+
+	// Decode registered claims
+	rClaims := jwt.RegisteredClaims{}
+
+	if err := token.DecodeClaims(&jwt.RegisteredClaims{}); err != nil {
+		log.Printf("handler: error decoding JWT claims for message-id '%s': %s", mid, err)
+	} else if !rClaims.IsValidExpiresAt(time.Now()) {
+		log.Printf("handler: JWT for message-id '%s' is expired on %s", mid, rClaims.ExpiresAt.Format(time.RFC3339))
+	}
+
+	// Decode all claims and log them
+	claims := make(map[string]interface{})
+
+	b := strings.Builder{}
+	b.WriteString(fmt.Sprintf("JWT claims for message-id '%s'\n", mid))
+	for k, v := range claims {
+		b.WriteString(fmt.Sprintf("  %s: %s\n", k, v))
+	}
+
+	log.Printf("handler: %s", b.String())
+
+	return ctx, nil
+}
+
 func (h *JWTHandler) Handle(ctx context.Context, m *stomp.Message) (context.Context, error) {
 	mId := m.Header.Get("message-id")
 
 	// FIXME: we don't need a public key for RS256, and we may not need a "private" key for other algorithms.
 	//  Figure out appropriate variable names, but we shouldn't panic until we know what keys are needed from the
 	//  environment
-	var publicKey = []byte(env.GetOrPanic(VarDrupalJwtPublicKey))
-	var privateKey = []byte(env.GetOrPanic(VarDrupalJwtPrivateKey))
+	var publicKey = []byte(env.GetOrDefault(VarDrupalJwtPublicKey, ""))
+	var privateKey = []byte(env.GetOrDefault(VarDrupalJwtPrivateKey, ""))
 
 	var (
 		rawToken []byte
 		token    *jwt.Token
-		verifier jwt.Verifier
 		err      error
 	)
 
@@ -105,6 +176,35 @@ func (h *JWTHandler) Handle(ctx context.Context, m *stomp.Message) (context.Cont
 		return ctx, err
 	}
 
+	err = verify(token, privateKey, publicKey)
+
+	if err != nil {
+		return ctx, fmt.Errorf("handler: unable to verify JWT for message-id %s: %w",
+			mId, err)
+	}
+
+	// Decode registered claims and check expiration
+	rClaims := jwt.RegisteredClaims{}
+
+	if err := token.DecodeClaims(&jwt.RegisteredClaims{}); err != nil {
+		return ctx, fmt.Errorf("handler: error decoding JWT claims for message-id '%s': %w", mId, err)
+	} else if !rClaims.IsValidExpiresAt(time.Now()) {
+		return ctx, fmt.Errorf("handler: JWT for message-id %s is expired on %s", mId, rClaims.ExpiresAt.Format(time.RFC3339))
+	}
+
+	ctx = context.WithValue(ctx, MsgJwt, token)
+
+	log.Printf("handler: verified JWT for message %s", mId)
+	return ctx, nil
+}
+
+func verify(token *jwt.Token, privateKey, publicKey []byte) error {
+
+	var (
+		verifier jwt.Verifier
+		err      error
+	)
+
 	switch token.Header().Algorithm {
 	case jwt.EdDSA:
 		verifier, err = jwt.NewVerifierEdDSA(publicKey)
@@ -125,15 +225,15 @@ func (h *JWTHandler) Handle(ctx context.Context, m *stomp.Message) (context.Cont
 		block, _ := pem.Decode(publicKey)
 		blockType := "RSA PUBLIC KEY"
 		if block == nil || block.Type != blockType {
-			return ctx, fmt.Errorf("handler: unable to verify JWT, invalid PEM encoded %s", blockType)
+			return fmt.Errorf("handler: unable to verify JWT, invalid PEM encoded %s", blockType)
 		}
 		if pubKey, err := x509.ParsePKIXPublicKey(block.Bytes); err != nil {
-			return ctx, fmt.Errorf("handler: unable to verify JWT, invalid PEM encoded %s: %w", blockType, err)
+			return fmt.Errorf("handler: unable to verify JWT, invalid PEM encoded %s: %w", blockType, err)
 		} else {
 			if rsaKey, ok := pubKey.(*rsa.PublicKey); ok {
 				verifier, err = jwt.NewVerifierRS(token.Header().Algorithm, rsaKey)
 			} else {
-				return ctx, fmt.Errorf("handler: unable to verify JWT, need %T but got %T", &rsa.PublicKey{}, pubKey)
+				return fmt.Errorf("handler: unable to verify JWT, need %T but got %T", &rsa.PublicKey{}, pubKey)
 			}
 		}
 
@@ -145,10 +245,10 @@ func (h *JWTHandler) Handle(ctx context.Context, m *stomp.Message) (context.Cont
 		block, _ := pem.Decode(privateKey)
 		blockType := "EC PRIVATE KEY"
 		if block == nil || block.Type != blockType {
-			return ctx, fmt.Errorf("handler: unable to verify JWT, invalid PEM encoded %s", blockType)
+			return fmt.Errorf("handler: unable to verify JWT, invalid PEM encoded %s", blockType)
 		}
 		if key, err := x509.ParseECPrivateKey(block.Bytes); err != nil {
-			return ctx, fmt.Errorf("handler: unable to verify JWT, invalid PEM encoded %s: %w", blockType, err)
+			return fmt.Errorf("handler: unable to verify JWT, invalid PEM encoded %s: %w", blockType, err)
 		} else {
 			verifier, err = jwt.NewVerifierES(token.Header().Algorithm, &key.PublicKey)
 		}
@@ -161,63 +261,43 @@ func (h *JWTHandler) Handle(ctx context.Context, m *stomp.Message) (context.Cont
 		block, _ := pem.Decode(publicKey)
 		blockType := "RSA PUBLIC KEY"
 		if block == nil || block.Type != blockType {
-			return ctx, fmt.Errorf("handler: unable to verify JWT, invalid PEM encoded %s", blockType)
+			return fmt.Errorf("handler: unable to verify JWT, invalid PEM encoded %s", blockType)
 		}
 		if pubKey, err := x509.ParsePKCS1PublicKey(block.Bytes); err != nil {
-			return ctx, fmt.Errorf("handler: unable to verify JWT, invalid PEM encoded %s: %w", blockType, err)
+			return fmt.Errorf("handler: unable to verify JWT, invalid PEM encoded %s: %w", blockType, err)
 		} else {
 			verifier, err = jwt.NewVerifierPS(token.Header().Algorithm, pubKey)
 		}
 
 	default:
-		return ctx, fmt.Errorf("handler: unknown or unsupported JWT algorithm '%s' for message-id %s",
-			token.Header().Algorithm, mId)
+		return fmt.Errorf("handler: unknown or unsupported JWT algorithm '%s'", token.Header().Algorithm)
 	}
 
 	if err != nil {
-		return ctx, fmt.Errorf("handler: unable instantiate JWT Verifier for message-id %s: %w", mId, err)
+		return fmt.Errorf("handler: unable instantiate JWT Verifier: %w", err)
 	}
 
-	err = verifier.Verify(token)
-
-	if err != nil {
-		return ctx, fmt.Errorf("handler: unable to verify JWT for message-id %s: %w",
-			mId, err)
-	}
-
-	// check expiration
-	expClaim := struct {
-		Exp int64
-	}{}
-	token.DecodeClaims(&expClaim)
-	if time.Now().After(time.Unix(expClaim.Exp, 0)) {
-		// JWT is expired
-		return ctx, fmt.Errorf("handler: JWT for message-id %s is expired on %s", mId, time.Unix(expClaim.Exp, 0).Format(time.RFC3339))
-	}
-
-	ctx = context.WithValue(ctx, MsgJwt, token)
-
-	log.Printf("handler: verified JWT for message %s", mId)
-	return ctx, nil
+	return verifier.Verify(token)
 }
 
-func (h *JWTHandler) Configure() error {
+func (h *JWTHandler) Configure(c config.Configuration) error {
 	var (
 		jwtConfig *map[string]interface{}
 		err       error
 	)
+	h.Configuration = c
 
-	if jwtConfig, err = h.UnmarshalConfig(); err != nil {
+	if jwtConfig, err = h.UnmarshalHandlerConfig(); err != nil {
 		return fmt.Errorf("handler: unable to configure JWTHandler: %w", err)
 	}
 
-	if requireTokens, err := config.BoolValue(jwtConfig, "requireTokens"); err != nil {
+	if requireTokens, err := c.BoolValue(jwtConfig, "requireTokens"); err != nil {
 		return fmt.Errorf("listener: unable to configure JWTHandler '%s': %w", h.Key, err)
 	} else {
 		h.RejectIfTokenMissing = requireTokens
 	}
 
-	if verifyTokens, err := config.BoolValue(jwtConfig, "verifyTokens"); err != nil {
+	if verifyTokens, err := c.BoolValue(jwtConfig, "verifyTokens"); err != nil {
 		return fmt.Errorf("listener: unable to configure JWTHandler '%s': %w", h.Key, err)
 	} else {
 		h.VerifyTokens = verifyTokens
@@ -258,4 +338,9 @@ func (h StompLoggerHandler) Handle(ctx context.Context, m *stomp.Message) (conte
 		string(prettyB))
 
 	return context.WithValue(ctx, msgFullBody, &b), nil
+}
+
+func (h StompLoggerHandler) Configure(config.Configuration) error {
+	// no-op
+	return nil
 }
