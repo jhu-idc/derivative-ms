@@ -134,7 +134,7 @@ func (h *JWTLoggingHandler) Handle(ctx context.Context, m *stomp.Message) (conte
 	for k, v := range claims {
 		b.WriteString(fmt.Sprintf("  %s: %s\n", k, v))
 		if k == "exp" {
-			expTime := time.Unix(v.(int64), 0)
+			expTime := time.Unix(int64(v.(float64)), 0)
 			if time.Now().After(expTime) {
 				expired = expTime
 			}
