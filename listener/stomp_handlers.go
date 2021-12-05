@@ -21,6 +21,8 @@ import (
 const (
 	VarDrupalJwtPublicKey  = "DRUPAL_JWT_PUBLIC_KEY"
 	VarDrupalJwtPrivateKey = "DRUPAL_JWT_PRIVATE_KEY"
+
+	MsgHeaderMessageId = "message-id"
 )
 
 type CompositeStompHandler struct {
@@ -92,11 +94,11 @@ func (h *JWTLoggingHandler) Handle(ctx context.Context, m *stomp.Message) (conte
 		err      error
 	)
 
-	mid := m.Header.Get("message-id")
+	mid := m.Header.Get(MsgHeaderMessageId)
 
 	if authHeader := m.Header.Get("Authorization"); authHeader == "" {
 		// token not found on the message
-		log.Printf("handler: no JWT found on the message with id '%s'", mid)
+		log.Printf("[%s] [%s] handler: no JWT found on the message with id '%s'", "JWTLoggingHandler", mid, mid)
 		return ctx, nil
 	} else {
 		if strings.HasPrefix(authHeader, "Bearer ") {
@@ -108,25 +110,25 @@ func (h *JWTLoggingHandler) Handle(ctx context.Context, m *stomp.Message) (conte
 
 	if token, err = jwt.ParseNoVerify(rawToken); err != nil {
 		// token not parsable
-		log.Printf("handler: JWT token could not be parsed from message: %s", err)
+		log.Printf("[%s] [%s] handler: JWT token could not be parsed from message: %s", "JWTLoggingHandler", mid, err)
 		return ctx, nil
 	}
 
 	err = verify(token, []byte(env.GetOrDefault(VarDrupalJwtPrivateKey, "")), []byte(env.GetOrDefault(VarDrupalJwtPublicKey, "")))
 
 	if err != nil {
-		log.Printf("handler: JWT could not be verified for message-id '%s': %s", mid, err)
+		log.Printf("[%s] [%s] handler: JWT could not be verified for message-id '%s': %s", "JWTLoggingHandler", mid, mid, err)
 	} else {
-		log.Printf("handler: JWT verified for message-id '%s'", mid)
+		log.Printf("[%s] [%s] handler: JWT verified for message-id '%s'", "JWTLoggingHandler", mid, mid)
 	}
 
 	// Decode registered claims
 	rClaims := jwt.RegisteredClaims{}
 
 	if err := token.DecodeClaims(&jwt.RegisteredClaims{}); err != nil {
-		log.Printf("handler: error decoding JWT claims for message-id '%s': %s", mid, err)
+		log.Printf("[%s] [%s] handler: error decoding JWT claims for message-id '%s': %s", "JWTLoggingHandler", mid, mid, err)
 	} else if !rClaims.IsValidExpiresAt(time.Now()) {
-		log.Printf("handler: JWT for message-id '%s' is expired on %s", mid, rClaims.ExpiresAt.Format(time.RFC3339))
+		log.Printf("[%s] [%s] handler: JWT for message-id '%s' is expired on %s", "JWTLoggingHandler", mid, mid, rClaims.ExpiresAt.Format(time.RFC3339))
 	}
 
 	// Decode all claims and log them
@@ -138,13 +140,13 @@ func (h *JWTLoggingHandler) Handle(ctx context.Context, m *stomp.Message) (conte
 		b.WriteString(fmt.Sprintf("  %s: %s\n", k, v))
 	}
 
-	log.Printf("handler: %s", b.String())
+	log.Printf("[%s] [%s] handler: %s", "JWTLoggingHandler", mid, b.String())
 
 	return ctx, nil
 }
 
 func (h *JWTHandler) Handle(ctx context.Context, m *stomp.Message) (context.Context, error) {
-	mId := m.Header.Get("message-id")
+	mId := m.Header.Get(MsgHeaderMessageId)
 
 	// FIXME: we don't need a public key for RS256, and we may not need a "private" key for other algorithms.
 	//  Figure out appropriate variable names, but we shouldn't panic until we know what keys are needed from the
@@ -194,7 +196,7 @@ func (h *JWTHandler) Handle(ctx context.Context, m *stomp.Message) (context.Cont
 
 	ctx = context.WithValue(ctx, MsgJwt, token)
 
-	log.Printf("handler: verified JWT for message %s", mId)
+	log.Printf("[%s] [%s] handler: verified JWT for message %s", "JWTHandler", mId, mId)
 	return ctx, nil
 }
 
@@ -321,16 +323,18 @@ func (h StompLoggerHandler) Handle(ctx context.Context, m *stomp.Message) (conte
 	headers := strings.Builder{}
 	for i := 0; i < m.Header.Len(); i++ {
 		k, v := m.Header.GetAt(i)
-		headers.WriteString(fmt.Sprintf("  %s: %s\n", k, v))
+		headers.WriteString(fmt.Sprintf("    %s: %s\n", k, v))
 	}
 
 	fmt.Fprintf(h.Writer,
-		"Content Type: %s\n"+
-			"Destination: %s\n"+
-			"Subscription: %s\n"+
-			"Headers:\n%s"+
-			"Body:\n"+
-			"%+v\n",
+		"[%s] [%s]\n" +
+		"  Content Type: %s\n"+
+		"  Destination: %s\n"+
+		"  Subscription: %s\n"+
+		"  Headers:\n%s"+
+		"  Body:\n"+
+		"%+v\n",
+		"StompLoggerHandler", m.Header.Get(MsgHeaderMessageId),
 		m.ContentType,
 		m.Destination,
 		m.Subscription.Id(),
