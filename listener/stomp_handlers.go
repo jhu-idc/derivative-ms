@@ -117,27 +117,32 @@ func (h *JWTLoggingHandler) Handle(ctx context.Context, m *stomp.Message) (conte
 	err = verify(token, []byte(env.GetOrDefault(VarDrupalJwtPrivateKey, "")), []byte(env.GetOrDefault(VarDrupalJwtPublicKey, "")))
 
 	if err != nil {
-		log.Printf("[%s] [%s] handler: JWT could not be verified for message-id '%s': %s", "JWTLoggingHandler", mid, mid, err)
+		log.Printf("[%s] [%s] handler: JWT could not be verified: %s", "JWTLoggingHandler", mid, err)
 	} else {
-		log.Printf("[%s] [%s] handler: JWT verified for message-id '%s'", "JWTLoggingHandler", mid, mid)
+		log.Printf("[%s] [%s] handler: JWT verified", "JWTLoggingHandler", mid)
 	}
 
 	// Decode all claims and log them
 	claims := make(map[string]interface{})
 	if err := token.DecodeClaims(&claims); err != nil {
-		log.Printf("[%s] [%s] handler: error decoding JWT claims for message-id '%s': %s", "JWTLoggingHandler", mid, mid, err)
+		log.Printf("[%s] [%s] handler: error decoding JWT claims: %s", "JWTLoggingHandler", mid, err)
 	}
 
 	expired := time.Time{}
 	b := strings.Builder{}
-	b.WriteString(fmt.Sprintf("JWT claims for message-id '%s'\n", mid))
+	b.WriteString("JWT claims:\n")
 	for k, v := range claims {
-		b.WriteString(fmt.Sprintf("  %s: %v\n", k, v))
-		if k == "exp" {
+		switch k {
+		case "exp":
 			expTime := time.Unix(int64(v.(float64)), 0)
 			if time.Now().After(expTime) {
 				expired = expTime
 			}
+			b.WriteString(fmt.Sprintf("  %s: %v (%s)\n", k, v, expTime.Format(time.RFC3339)))
+		case "iat":
+			b.WriteString(fmt.Sprintf("  %s: %v (%s)\n", k, v, time.Unix(int64(v.(float64)), 0).Format(time.RFC3339)))
+		default:
+			b.WriteString(fmt.Sprintf("  %s: %v\n", k, v))
 		}
 	}
 
@@ -331,7 +336,7 @@ func (h StompLoggerHandler) Handle(ctx context.Context, m *stomp.Message) (conte
 	}
 
 	fmt.Fprintf(h.Writer,
-		"[%s] [%s]\n"+
+		"[%s] [%s] STOMP headers and body\n"+
 			"  Content Type: %s\n"+
 			"  Destination: %s\n"+
 			"  Subscription: %s\n"+
