@@ -132,7 +132,7 @@ func (h *JWTLoggingHandler) Handle(ctx context.Context, m *stomp.Message) (conte
 	b := strings.Builder{}
 	b.WriteString(fmt.Sprintf("JWT claims for message-id '%s'\n", mid))
 	for k, v := range claims {
-		b.WriteString(fmt.Sprintf("  %s: %s\n", k, v))
+		b.WriteString(fmt.Sprintf("  %s: %v\n", k, v))
 		if k == "exp" {
 			expTime := time.Unix(int64(v.(float64)), 0)
 			if time.Now().After(expTime) {
