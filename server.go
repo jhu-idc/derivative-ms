@@ -79,7 +79,7 @@ func main() {
 			case "MessageBody":
 				h = &listener.MessageBody{}
 			case "StompLoggerHandler":
-				h = &listener.StompLoggerHandler{Writer: os.Stdout}
+				h = &listener.StompLoggerHandler{}
 			case "Pdf2TextHandler":
 				h = &handler.Pdf2TextHandler{}
 			case "TesseractHandler":

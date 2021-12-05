@@ -12,7 +12,6 @@ import (
 	"fmt"
 	"github.com/cristalhq/jwt/v4"
 	"github.com/go-stomp/stomp/v3"
-	"io"
 	"log"
 	"strings"
 	"time"
@@ -52,7 +51,6 @@ type JWTLoggingHandler struct {
 }
 
 type StompLoggerHandler struct {
-	Writer io.Writer
 }
 
 type MessageBody struct {
@@ -335,14 +333,13 @@ func (h StompLoggerHandler) Handle(ctx context.Context, m *stomp.Message) (conte
 		headers.WriteString(fmt.Sprintf("    %s: %s\n", k, v))
 	}
 
-	fmt.Fprintf(h.Writer,
-		"[%s] [%s] STOMP headers and body\n"+
-			"  Content Type: %s\n"+
-			"  Destination: %s\n"+
-			"  Subscription: %s\n"+
-			"  Headers:\n%s"+
-			"  Body:\n"+
-			"%+v\n",
+	log.Printf("[%s] [%s] STOMP headers and body\n"+
+		"  Content Type: %s\n"+
+		"  Destination: %s\n"+
+		"  Subscription: %s\n"+
+		"  Headers:\n%s"+
+		"  Body:\n"+
+		"%+v\n",
 		"StompLoggerHandler", m.Header.Get(MsgHeaderMessageId),
 		m.ContentType,
 		m.Destination,
