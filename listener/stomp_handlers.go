@@ -122,25 +122,29 @@ func (h *JWTLoggingHandler) Handle(ctx context.Context, m *stomp.Message) (conte
 		log.Printf("[%s] [%s] handler: JWT verified for message-id '%s'", "JWTLoggingHandler", mid, mid)
 	}
 
-	// Decode registered claims
-	rClaims := jwt.RegisteredClaims{}
-
-	if err := token.DecodeClaims(&jwt.RegisteredClaims{}); err != nil {
-		log.Printf("[%s] [%s] handler: error decoding JWT claims for message-id '%s': %s", "JWTLoggingHandler", mid, mid, err)
-	} else if !rClaims.IsValidExpiresAt(time.Now()) {
-		log.Printf("[%s] [%s] handler: JWT for message-id '%s' is expired on %s", "JWTLoggingHandler", mid, mid, rClaims.ExpiresAt.Format(time.RFC3339))
-	}
-
 	// Decode all claims and log them
 	claims := make(map[string]interface{})
+	if err := token.DecodeClaims(&claims); err != nil {
+		log.Printf("[%s] [%s] handler: error decoding JWT claims for message-id '%s': %s", "JWTLoggingHandler", mid, mid, err)
+	}
 
+	expired := time.Time{}
 	b := strings.Builder{}
 	b.WriteString(fmt.Sprintf("JWT claims for message-id '%s'\n", mid))
 	for k, v := range claims {
 		b.WriteString(fmt.Sprintf("  %s: %s\n", k, v))
+		if k == "exp" {
+			expTime := time.Unix(v.(int64), 0)
+			if time.Now().After(expTime) {
+				expired = expTime
+			}
+		}
 	}
 
 	log.Printf("[%s] [%s] handler: %s", "JWTLoggingHandler", mid, b.String())
+	if !expired.IsZero() {
+		log.Printf("[%s] [%s] handler: JWT expired at %s", "JWTLoggingHandler", mid, expired.Format(time.RFC3339))
+	}
 
 	return ctx, nil
 }
@@ -327,13 +331,13 @@ func (h StompLoggerHandler) Handle(ctx context.Context, m *stomp.Message) (conte
 	}
 
 	fmt.Fprintf(h.Writer,
-		"[%s] [%s]\n" +
-		"  Content Type: %s\n"+
-		"  Destination: %s\n"+
-		"  Subscription: %s\n"+
-		"  Headers:\n%s"+
-		"  Body:\n"+
-		"%+v\n",
+		"[%s] [%s]\n"+
+			"  Content Type: %s\n"+
+			"  Destination: %s\n"+
+			"  Subscription: %s\n"+
+			"  Headers:\n%s"+
+			"  Body:\n"+
+			"%+v\n",
 		"StompLoggerHandler", m.Header.Get(MsgHeaderMessageId),
 		m.ContentType,
 		m.Destination,
