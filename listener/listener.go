@@ -103,12 +103,17 @@ func (l *StompListener) Listen(h Handler) error {
 			continue
 		}
 
-		if _, err = h.Handle(ctx, ctx.Value(MsgBody).(*MessageBody)); err != nil {
-			log.Printf("listener: error handling message: %s", err)
-			if nackErr := c.Nack(moo); nackErr != nil {
-				log.Printf("listener: error nacking message: %s: %s", err, moo.Header.Get("message-id"))
+		// In some cases there may be no message body, for example when the StompHandler is simply logging
+		// the JWT and message and no listener.Handlers are configured.
+		body := ctx.Value(MsgBody)
+		if body != nil {
+			if _, err = h.Handle(ctx, body.(*MessageBody)); err != nil {
+				log.Printf("listener: error handling message: %s", err)
+				if nackErr := c.Nack(moo); nackErr != nil {
+					log.Printf("listener: error nacking message: %s: %s", err, moo.Header.Get("message-id"))
+				}
+				continue
 			}
-			continue
 		}
 
 		// TODO: what if no handler handled the message
