@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"math"
 	"os"
 )
 
@@ -42,7 +43,9 @@ type Config struct {
 
 type Configuration struct {
 	*Config
-	Key string
+	Key   string
+	Type  string
+	Order int
 }
 
 type Configurable interface {
@@ -80,7 +83,7 @@ func (s *Config) Resolve(cliValue string) {
 	}
 
 	if err = json.Unmarshal(s.Bytes, &s.Json); err != nil {
-		log.Fatalf("config: error unmarshaling configuration from '%s': '%s", err)
+		log.Fatalf("config: error unmarshaling configuration from '%s': '%s", s.Location, err)
 	}
 }
 
@@ -184,6 +187,24 @@ func (c *Configuration) UnmarshalHandlerConfig() (*map[string]interface{}, error
 		return nil, fmt.Errorf("config: unable to configure handler with key '%s': %w", c.Key, err)
 	}
 	return &handlerConfig, nil
+}
+
+// Order will sort a slice of Configuration by Configuration.Order in ascending order.  If an `order` value is not
+// present on a Configuration, it will sort as `0`.
+//
+// If Configurations have equal `order` values, the sort order is undefined.
+func Order(handlers []Configuration) {
+	for pos := 0; pos < len(handlers); pos++ {
+		smallest := math.MaxInt
+		smallestPos := -1
+		for i := pos; i < len(handlers); i++ {
+			if handlers[i].Order < smallest {
+				smallest = handlers[i].Order
+				smallestPos = i
+			}
+		}
+		handlers[pos], handlers[smallestPos] = handlers[smallestPos], handlers[pos]
+	}
 }
 
 // Answers an error such that errors.Is(err, NotFoundErr) == true

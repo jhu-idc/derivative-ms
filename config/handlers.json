@@ -1,20 +1,25 @@
 {
   "jwt-logger": {
-    "handler-type": "JWTLoggingHandler"
+    "handler-type": "JWTLoggingHandler",
+    "order": 1
+  },
+  "stomp-logger": {
+    "handler-type": "StompLoggerHandler",
+    "order": 2
   },
   "jwt": {
     "handler-type": "JWTHandler",
+    "order": 3,
     "requireTokens": true,
     "verifyTokens": true
   },
   "body": {
-    "handler-type": "MessageBody"
-  },
-  "stomp-logger": {
-    "handler-type": "StompLoggerHandler"
+    "handler-type": "MessageBody",
+    "order": 4
   },
   "convert": {
     "handler-type": "ImageMagickHandler",
+    "order": 5,
     "commandPath": "/usr/local/bin/convert",
     "defaultMediaType": "image/jpeg",
     "acceptedFormats": [
@@ -26,6 +31,7 @@
   },
   "ffmpeg": {
     "handler-type": "FFMpegHandler",
+    "order": 6,
     "commandPath": "/usr/local/bin/ffmpeg",
     "defaultMediaType": "video/mp4",
     "acceptedFormatsMap": {
@@ -41,10 +47,12 @@
   },
   "tesseract": {
     "handler-type": "TesseractHandler",
+    "order": 7,
     "commandPath": "/usr/local/bin/tesseract"
   },
   "pdf2txt": {
     "handler-type": "Pdf2TextHandler",
+    "order": 8,
     "commandPath": "/usr/local/bin/pdftotext"
   }
 }

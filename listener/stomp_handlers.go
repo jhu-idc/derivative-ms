@@ -51,6 +51,7 @@ type JWTLoggingHandler struct {
 }
 
 type StompLoggerHandler struct {
+	config.Configuration
 }
 
 type MessageBody struct {

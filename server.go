@@ -23,6 +23,7 @@ const (
 	argConfig  = "config"
 
 	handlerType = "handler-type"
+	order       = "order"
 )
 
 var (
@@ -49,13 +50,15 @@ func main() {
 	appConfig.Resolve(*cliConfig)
 
 	var (
-		stompHandlers []listener.StompHandler
-		bodyHandlers  []listener.Handler
-		err           error
+		handlerConfigs []config.Configuration
+		stompHandlers  []listener.StompHandler
+		bodyHandlers   []listener.Handler
+		err            error
 	)
 
-	for configKey, interfaceVal := range appConfig.Json {
-		if configVal, ok := interfaceVal.(map[string]interface{}); !ok {
+	// Create a config.Configuration for each handler in the application configuration file.
+	for configKey, value := range appConfig.Json {
+		if configVal, ok := value.(map[string]interface{}); !ok {
 			log.Fatalf("error configuring %s: configuration key %s was expected to reference a %T, but was %T",
 				os.Args[0], configKey, map[string]interface{}{}, configVal)
 		} else {
@@ -64,51 +67,60 @@ func main() {
 					os.Args[0], configKey)
 			}
 
-			var h interface{}
-
 			handlerConfig := config.Configuration{
 				Key:    configKey,
 				Config: appConfig,
+				Order:  int(configVal[order].(float64)),
+				Type:   configVal[handlerType].(string),
 			}
 
-			switch configVal[handlerType] {
-			case "JWTLoggingHandler":
-				h = &listener.JWTLoggingHandler{}
-			case "JWTHandler":
-				h = &listener.JWTHandler{}
-			case "MessageBody":
-				h = &listener.MessageBody{}
-			case "StompLoggerHandler":
-				h = &listener.StompLoggerHandler{}
-			case "Pdf2TextHandler":
-				h = &handler.Pdf2TextHandler{}
-			case "TesseractHandler":
-				h = &handler.TesseractHandler{}
-			case "FFMpegHandler":
-				h = &handler.FFMpegHandler{}
-			case "ImageMagickHandler":
-				h = &handler.ImageMagickHandler{}
-			default:
-				log.Fatalf("error configuring %s: unknown handler configuration type %s", os.Args[0], configVal[handlerType])
-			}
+			handlerConfigs = append(handlerConfigs, handlerConfig)
+		}
+	}
 
-			log.Printf("Configuring %s %T", configKey, h)
-			if configurable, ok := h.(config.Configurable); ok {
-				if err = configurable.Configure(handlerConfig); err != nil {
-					log.Fatalf("error configuring handler %s: %s", configKey, err)
-				}
-			}
+	// Sort the configurations by their order, ascending
+	config.Order(handlerConfigs)
 
-			log.Printf("activating handler: %s", configKey)
+	// Configure the sorted handlers, keeping STOMP message handlers separate from STOMP message body handlers.
+	for _, handlerConfig := range handlerConfigs {
+		var h interface{}
+		switch handlerConfig.Type {
+		case "JWTLoggingHandler":
+			h = &listener.JWTLoggingHandler{}
+		case "JWTHandler":
+			h = &listener.JWTHandler{}
+		case "MessageBody":
+			h = &listener.MessageBody{}
+		case "StompLoggerHandler":
+			h = &listener.StompLoggerHandler{}
+		case "Pdf2TextHandler":
+			h = &handler.Pdf2TextHandler{}
+		case "TesseractHandler":
+			h = &handler.TesseractHandler{}
+		case "FFMpegHandler":
+			h = &handler.FFMpegHandler{}
+		case "ImageMagickHandler":
+			h = &handler.ImageMagickHandler{}
+		default:
+			log.Fatalf("error configuring %s: unknown handler configuration type %s", os.Args[0], handlerConfig.Type)
+		}
 
-			switch t := h.(type) {
-			case listener.StompHandler:
-				stompHandlers = append(stompHandlers, h.(listener.StompHandler))
-			case listener.Handler:
-				bodyHandlers = append(bodyHandlers, h.(listener.Handler))
-			default:
-				log.Fatalf("error configuring %s: unknown handler type %T", configKey, t)
+		log.Printf("Configuring %s %T", handlerConfig.Key, h)
+		if configurable, ok := h.(config.Configurable); ok {
+			if err = configurable.Configure(handlerConfig); err != nil {
+				log.Fatalf("error configuring handler %s: %s", handlerConfig.Key, err)
 			}
+		}
+
+		log.Printf("activating handler: %s", handlerConfig.Key)
+
+		switch t := h.(type) {
+		case listener.StompHandler:
+			stompHandlers = append(stompHandlers, h.(listener.StompHandler))
+		case listener.Handler:
+			bodyHandlers = append(bodyHandlers, h.(listener.Handler))
+		default:
+			log.Fatalf("error configuring %s: unknown handler type %T", handlerConfig.Key, t)
 		}
 	}
 
