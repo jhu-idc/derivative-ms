@@ -1,6 +1,6 @@
 # Derivative Microservices
 
-Essentially this repository contains a re-write of the Islandora microserives: houdini, homarus, hypercube, and FITS (a TODO).  It should be considered prototype-level quality.  The microservices use STOMP to communicate with ActiveMQ.  [AMQ-4710](https://issues.apache.org/jira/browse/AMQ-4710) is a long-standing bug impacting the reliability of STOMP clients, so use of these microserivces requires a [patched version of ActiveMQ](https://github.com/jhu-idc/idc-isle-buildkit/pull/89).
+Essentially this repository contains a re-write of the Islandora microservices: houdini, homarus, hypercube, and FITS (a TODO).  It should be considered prototype-level quality.  The microservices use STOMP to communicate with ActiveMQ.  [AMQ-4710](https://issues.apache.org/jira/browse/AMQ-4710) is a long-standing bug impacting the reliability of STOMP clients, so use of these microservices requires a [patched version of ActiveMQ](https://github.com/jhu-idc/idc-isle-buildkit/pull/89).
 
 ## Usage
 
@@ -45,11 +45,27 @@ Configuration is specified (in order of **decreasing** precedence):
 The embedded default configuration is below:
 ```json
 {
+  "jwt-logger": {
+    "handler-type": "JWTLoggingHandler",
+    "order": 10
+  },
+  "stomp-logger": {
+    "handler-type": "StompLoggerHandler",
+    "order": 20
+  },
   "jwt": {
+    "handler-type": "JWTHandler",
+    "order": 30,
     "requireTokens": true,
     "verifyTokens": true
   },
+  "body": {
+    "handler-type": "MessageBody",
+    "order": 40
+  },
   "convert": {
+    "handler-type": "ImageMagickHandler",
+    "order": 50,
     "commandPath": "/usr/local/bin/convert",
     "defaultMediaType": "image/jpeg",
     "acceptedFormats": [
@@ -60,6 +76,8 @@ The embedded default configuration is below:
     ]
   },
   "ffmpeg": {
+    "handler-type": "FFMpegHandler",
+    "order": 60,
     "commandPath": "/usr/local/bin/ffmpeg",
     "defaultMediaType": "video/mp4",
     "acceptedFormatsMap": {
@@ -74,17 +92,45 @@ The embedded default configuration is below:
     }
   },
   "tesseract": {
+    "handler-type": "TesseractHandler",
+    "order": 70,
     "commandPath": "/usr/local/bin/tesseract"
   },
   "pdf2txt": {
+    "handler-type": "Pdf2TextHandler",
+    "order": 80,
     "commandPath": "/usr/local/bin/pdftotext"
   }
 }
 ```
 
-Each handler is configured with a unique key.  Five handlers are configured by default, keyed as `jwt`, `convert`, `ffmpeg`, `tesseract`, and `pdf2txt`.  Right now there is no way to customize the list of handlers, except to _remove_ them from the configuration (this is a prototype; hard-coding the list of supported handlers is a simplifying decision).
+Each handler is configured with a unique key, type, and a positive integer that reflects the overall order in which it is invoked.
 
-Handlers may be customized by creating a configuration file based on the embedded configuration shown above.  The embedded configuration ought to be copied to a file and edited as needed (keeping in mind that adding additional handlers or changing the keys associated with the handlers is not supported).  To use the external configuration, either create an environment variable named `DERIVATIVE_HANDLER_CONFIG` with the absolute path to the configuration, or supply the absolute path to the configuration on the command line as an argument to `-config`.
+Handlers may be customized by creating a configuration file based on the embedded configuration shown above.  The embedded configuration ought to be copied to a file and edited as needed.  To use the external configuration, either create an environment variable named `DERIVATIVE_HANDLER_CONFIG` with the absolute path to the configuration, or supply the absolute path to the configuration on the command line as an argument to `-config`.
+
+## Handlers
+
+Handlers are responsible for performing some action based on a received message.  For example, the `ImageMagickHandler` produces a derivative image and PUTs it back to Drupal, while the `JWTLoggingHandler` emits the contents of the STOMP message's `Authorization` header to `stderr`.  
+
+Handlers are invoked in a chain according to the `order` specified in the configuration.  This is important for two reasons: 1) To ensure secure processing, the handler which verifies JWT tokens ought to run before another handler that generates a derivative, and 2) state produced by one handler may be passed to the remaining handlers, so there may be a dependency between Handler A and Handler B if Handler B relies on state added by Handler A.
+
+The chain may be terminated by any Handler that returns a non-nil error.  Otherwise, handlers should generally perform their actions and return a `nil` error, allowing the remaining handlers in the chain to execute.  If a Handler returns a non-nil error, the chain terminates, and the message being processed by the handler chain is negatively acknowledged.
+
+There are two types of handlers:
+1) stomp.Message handler: these handlers execute before any MessageBody handler.  They receive an instance of the STOMP message, which provides access to message headers and behaviors (e.g. acknowledging the message).  These handlers respond to concerns outside the "business" realm of derivative generation.  For example, verifying JWT tokens.
+```go
+Handle(ctx context.Context, m *stomp.Message) (context.Context, error)
+```
+2) listener.MessageBody handler: these handlers execute *after* any stomp.Message handler.  They receive an instance of the body of the message, and are concerned with the "business" realm: they execute logic to produce a derivative and PUT them back to Drupal.
+```go
+Handle(ctx context.Context, b *MessageBody) (context.Context, error)
+```
+
+Any handler may terminate the chain by returning a non-nil error, and _must_ return a Context.  A handler can return the provided Context, or return a new Context that wraps the provided Context.  The latter is used if the handler wishes to pass some state to handlers later in the chain.
+
+The rationale for two different types of handlers is that stomp.Message handlers expose behaviors and state related to the protocol.  If the wire protocol changes from STOMP to another protocol (e.g. OpenWire), you only have to reimplement the stomp.Message handlers.  Similarly, handlers that operate on just the message body don't need access to protocol semantics.  They're insulated from the protocol, and do not have responsibility for things like message acknowledgement. 
+
+Speaking of message acknowledgement: if the handlers execute without error, the message is acknowledged.  If a handler returns an error, the handler chain is terminated and the message is nacked.  The broker may attempt redelivery at some future time.
 
 ## Docker Image
 
