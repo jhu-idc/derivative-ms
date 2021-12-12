@@ -12,7 +12,12 @@ import (
 )
 
 const (
-	defaultConfig    = "handlers.json"
+	defaultConfig  = "handlers.json"
+	keyHandlerType = "handler-type"
+	keyOrder       = "order"
+
+	// VarHandlerConfig is the name of the environment variable containing the absolute path to the configuration
+	// location on the filesystem
 	VarHandlerConfig = "DERIVATIVE_HANDLER_CONFIG"
 )
 
@@ -41,13 +46,20 @@ type Config struct {
 	Json map[string]interface{}
 }
 
+// Configuration contains metadata for locating a specific Handler configuration within the application Config.
 type Configuration struct {
+	// Config is a pointer to the application configuration
 	*Config
-	Key   string
-	Type  string
+	// Key identifies the top-level JSON object associated with a Handler
+	Key string
+	// Type is a simple string specifying the Handler type
+	Type string
+	// Order is the position relative to other Handlers in the application config by which the Handler is executed
 	Order int
 }
 
+// Configurable accepts a Configuration instance and configures itself.  For example, a Handler may implement
+// Configurable, so it has an opportunity to set any runtime parameters before handling messages.
 type Configurable interface {
 	Configure(c Configuration) error
 }
@@ -94,7 +106,7 @@ func (s *Config) Resolve(cliValue string) {
 //
 // If the key is not found, a NotFoundErr will be returned.  If the keyed value cannot be converted to a string, a
 // TypeConvErr is returned.
-func (s *Config) StringValue(jsonBlob *map[string]interface{}, key string) (string, error) {
+func StringValue(jsonBlob *map[string]interface{}, key string) (string, error) {
 	if _, ok := (*jsonBlob)[key]; !ok {
 		return "", notFoundErr(key)
 	}
@@ -113,7 +125,7 @@ func (s *Config) StringValue(jsonBlob *map[string]interface{}, key string) (stri
 //
 // If the key is not found, a NotFoundErr will be returned.  If the keyed value cannot be converted to a []string, a
 // TypeConvErr is returned.
-func (s *Config) SliceStringValue(jsonBlob *map[string]interface{}, key string) ([]string, error) {
+func SliceStringValue(jsonBlob *map[string]interface{}, key string) ([]string, error) {
 	var (
 		slice  []interface{}
 		result []string
@@ -122,6 +134,10 @@ func (s *Config) SliceStringValue(jsonBlob *map[string]interface{}, key string) 
 
 	if _, ok = (*jsonBlob)[key]; !ok {
 		return []string{}, notFoundErr(key)
+	}
+
+	if slice, ok := (*jsonBlob)[key].([]string); ok {
+		return slice, nil
 	}
 
 	if slice, ok = (*jsonBlob)[key].([]interface{}); !ok {
@@ -146,7 +162,7 @@ func (s *Config) SliceStringValue(jsonBlob *map[string]interface{}, key string) 
 //
 // If the key is not found, a NotFoundErr will be returned.  If the keyed value cannot be converted to a bool, a
 // TypeConvErr is returned.
-func (s *Config) BoolValue(jsonBlob *map[string]interface{}, key string) (bool, error) {
+func BoolValue(jsonBlob *map[string]interface{}, key string) (bool, error) {
 	if _, ok := (*jsonBlob)[key]; !ok {
 		return false, notFoundErr(key)
 	}
@@ -165,7 +181,7 @@ func (s *Config) BoolValue(jsonBlob *map[string]interface{}, key string) (bool, 
 //
 // If the key is not found, a NotFoundErr will be returned.  If the keyed value cannot be converted to a
 // map[string]interface{}, a TypeConvErr is returned.
-func (s *Config) MapValue(jsonBlob *map[string]interface{}, key string) (map[string]interface{}, error) {
+func MapValue(jsonBlob *map[string]interface{}, key string) (map[string]interface{}, error) {
 	if _, ok := (*jsonBlob)[key]; !ok {
 		return map[string]interface{}{}, notFoundErr(key)
 	}
@@ -183,7 +199,7 @@ func (c *Configuration) UnmarshalHandlerConfig() (*map[string]interface{}, error
 	var err error
 	var handlerConfig map[string]interface{}
 
-	if handlerConfig, err = c.MapValue(&c.Json, c.Key); err != nil {
+	if handlerConfig, err = MapValue(&c.Json, c.Key); err != nil {
 		return nil, fmt.Errorf("config: unable to configure handler with key '%s': %w", c.Key, err)
 	}
 	return &handlerConfig, nil

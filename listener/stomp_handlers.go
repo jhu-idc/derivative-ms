@@ -301,13 +301,13 @@ func (h *JWTHandler) Configure(c config.Configuration) error {
 		return fmt.Errorf("handler: unable to configure JWTHandler: %w", err)
 	}
 
-	if requireTokens, err := c.BoolValue(jwtConfig, "requireTokens"); err != nil {
+	if requireTokens, err := config.BoolValue(jwtConfig, "requireTokens"); err != nil {
 		return fmt.Errorf("listener: unable to configure JWTHandler '%s': %w", h.Key, err)
 	} else {
 		h.RejectIfTokenMissing = requireTokens
 	}
 
-	if verifyTokens, err := c.BoolValue(jwtConfig, "verifyTokens"); err != nil {
+	if verifyTokens, err := config.BoolValue(jwtConfig, "verifyTokens"); err != nil {
 		return fmt.Errorf("listener: unable to configure JWTHandler '%s': %w", h.Key, err)
 	} else {
 		h.VerifyTokens = verifyTokens

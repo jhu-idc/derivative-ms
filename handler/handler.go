@@ -149,7 +149,7 @@ func (h *TesseractHandler) Configure(c config.Configuration) error {
 		return fmt.Errorf("handler: unable to configure TesseractHandler: %w", err)
 	}
 
-	if h.CommandPath, err = c.StringValue(handlerConfig, "commandPath"); err != nil {
+	if h.CommandPath, err = config.StringValue(handlerConfig, "commandPath"); err != nil {
 		return fmt.Errorf("handler: unable to configure TesseractHandler '%s', parameter '%s': %w", h.Key, "commandPath", err)
 	}
 
@@ -247,7 +247,7 @@ func (h *Pdf2TextHandler) Configure(c config.Configuration) error {
 		return fmt.Errorf("handler: unable to configure Pdf2TextHandler: %w", err)
 	}
 
-	if h.CommandPath, err = c.StringValue(handlerConfig, "commandPath"); err != nil {
+	if h.CommandPath, err = config.StringValue(handlerConfig, "commandPath"); err != nil {
 		return fmt.Errorf("handler: unable to configure Pdf2TextHandler '%s', parameter '%s': %w", h.Key, "commandPath", err)
 	}
 
@@ -362,15 +362,15 @@ func (h *ImageMagickHandler) Configure(c config.Configuration) error {
 		return fmt.Errorf("handler: unable to configure ImageMagickHandler: %w", err)
 	}
 
-	if h.CommandPath, err = c.StringValue(convertConfig, "commandPath"); err != nil {
+	if h.CommandPath, err = config.StringValue(convertConfig, "commandPath"); err != nil {
 		return fmt.Errorf("handler: unable to configure ImageMagickHandler '%s', parameter '%s': %w", h.Key, "commandPath", err)
 	}
 
-	if h.DefaultMediaType, err = c.StringValue(convertConfig, "defaultMediaType"); err != nil {
+	if h.DefaultMediaType, err = config.StringValue(convertConfig, "defaultMediaType"); err != nil {
 		return fmt.Errorf("handler: unable to configure ImageMagickHandler '%s', parameter '%s': %w", h.Key, "defaultMediaType", err)
 	}
 
-	if formats, err = c.SliceStringValue(convertConfig, "acceptedFormats"); err != nil {
+	if formats, err = config.SliceStringValue(convertConfig, "acceptedFormats"); err != nil {
 		return fmt.Errorf("handler: unable to configure ImageMagickHandler '%s', parameter '%s': %w", h.Key, "acceptedFormats", err)
 	}
 
@@ -491,15 +491,15 @@ func (h *FFMpegHandler) Configure(c config.Configuration) error {
 		return fmt.Errorf("handler: unable to configure FFMpegHandler: %w", err)
 	}
 
-	if h.CommandPath, err = c.StringValue(ffmpegConfig, "commandPath"); err != nil {
+	if h.CommandPath, err = config.StringValue(ffmpegConfig, "commandPath"); err != nil {
 		return fmt.Errorf("handler: unable to configure FFMpegHandler '%s', parameter '%s': %w", h.Key, "commandPath", err)
 	}
 
-	if h.DefaultMediaType, err = c.StringValue(ffmpegConfig, "defaultMediaType"); err != nil {
+	if h.DefaultMediaType, err = config.StringValue(ffmpegConfig, "defaultMediaType"); err != nil {
 		return fmt.Errorf("handler: unable to configure FFMpegHandler '%s', parameter '%s': %w", h.Key, "defaultMediaType", err)
 	}
 
-	if formats, err = c.MapValue(ffmpegConfig, "acceptedFormatsMap"); err != nil {
+	if formats, err = config.MapValue(ffmpegConfig, "acceptedFormatsMap"); err != nil {
 		return fmt.Errorf("handler: unable to configure FFMpegHandler '%s', parameter '%s': %w", h.Key, "acceptedFormatsMap", err)
 	}
 
