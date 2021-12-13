@@ -33,6 +33,15 @@ Usage of /Users/esm/go/bin/derivative-ms:
 |pass      | no       | ""                | STOMP broker password |
 |queue     | yes      | ""                | STOMP queue to listen to |
 
+## Environment Variables
+
+|Environment Variable              |Required|Default|Description|
+|---                               |---     |---    |---        |
+|`DERIVATIVE_HANDLER_CONFIG`       | no | `` (the empty string) | Absolute path to the application configuration file.  See the Handler Configuration below for how this env var is used. |
+|`DERIVATIVE_DIAL_TIMEOUT_SECONDS` | no | 30 seconds            | Attempts to connect to the message broker will fail after `DERIVATIVE_DIAL_TIMEOUT_SECONDS`.  If the broker starts up slowly, this timeout may need to be increased. |
+|`DRUPAL_JWT_PUBLIC_KEY`           | no | `` (the empty string) | The PEM-encoded RSA public key used to authenticate Drupal-issued JSON web tokens.  If no value is provided, JWTs cannot be validated.  This may cause the application to reject messages depending on the configuration of the `JWTHandler`. |
+|`DRUPAL_JWT_PRIVATE_KEY`          | no | `` (the empty string) | The PEM-encoded RSA private key used by Drupal to sign JSON web tokens.  Currently this variable is unused, as Drupal uses RS256, an asymmetric signing algorithm using public and private keys.  `DRUPAL_JWT_PRIVATE_KEY` is only used if a symmetric signing algorithm like HS2565 is used.  |
+
 ## Handler Configuration
 
 Handlers are configured in a JSON file, and the application includes a default configuration that is embedded in the application itself.  So if the default configuration is suitable, then no external configuration file needs to be provided.
