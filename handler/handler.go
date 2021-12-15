@@ -266,18 +266,20 @@ func (h *ImageMagickHandler) Handle(ctx context.Context, t *jwt.Token, b *api.Me
 		return ctx, nil
 	}
 
+	mid := ctx.Value(api.MsgId)
+
 	// Remove any tmp files left behind due to a crash or unclean shutdown of Imagemagick
 	defer func() {
 		entries, err := os.ReadDir(os.TempDir())
 		if err != nil {
-			log.Printf("handle: unable to clean up Imagemagick files '%s'", err)
+			log.Printf("[%s] [%s] handle: unable to clean up Imagemagick files '%s'", "ImageMagickHandler", mid, err)
 			return
 		}
 
 		for _, entry := range entries {
 			if strings.HasPrefix(entry.Name(), "magick-") {
 				info, _ := entry.Info()
-				log.Printf("handler: cleaning up Imagemagick temporary file '%s': %v", entry.Name(), info)
+				log.Printf("[%s] [%s] handler: cleaning up Imagemagick temporary file '%s': %v", "ImageMagickHandler", mid, entry.Name(), info)
 			}
 		}
 	}()
@@ -291,7 +293,7 @@ func (h *ImageMagickHandler) Handle(ctx context.Context, t *jwt.Token, b *api.Me
 
 	// Map the requested IANA media type to a supported imagemagick output format
 	if _, ok := h.AcceptedFormats[b.Attachment.Content.MimeType]; !ok {
-		return ctx, fmt.Errorf("handler: convert does not support mime type '%s'", b.Attachment.Content.MimeType)
+		return ctx, fmt.Errorf("[%s] [%s] handler: convert does not support mime type '%s'", "ImageMagickHandler", mid, b.Attachment.Content.MimeType)
 	}
 
 	// Manually compose the command arguments so that the additional args supplied with the message
@@ -351,8 +353,8 @@ func (h *ImageMagickHandler) Handle(ctx context.Context, t *jwt.Token, b *api.Me
 		defer func() {
 			imgStdin.Close()
 			if ioErr != nil {
-				log.Printf("hander: error copying stream from '%s' to stdin of '%s': %s",
-					b.Attachment.Content.SourceUri, h.CommandPath, ioErr)
+				log.Printf("[%s] [%s] hander: error copying stream from '%s' to stdin of '%s': %s",
+					"ImageMagickHandler", mid, b.Attachment.Content.SourceUri, h.CommandPath, ioErr)
 			}
 		}()
 		_, ioErr = io.Copy(imgStdin, sourceStream)
@@ -363,9 +365,9 @@ func (h *ImageMagickHandler) Handle(ctx context.Context, t *jwt.Token, b *api.Me
 		if err != nil {
 			b := &bytes.Buffer{}
 			if _, err := io.Copy(b, imgStderr); err != nil {
-				log.Printf("handler: there was an error executing ImageMagick, but the stderr could not be captured: '%s'", err)
+				log.Printf("[%s] [%s] handler: there was an error executing ImageMagick, but the stderr could not be captured: '%s'", "ImageMagickHandler", mid, err)
 			} else {
-				log.Printf("handler: there was an error executing ImageMagick, stderr follows:\n%s", b)
+				log.Printf("[%s] [%s] handler: there was an error executing ImageMagick, stderr follows:\n%s", "ImageMagickHandler", mid, b)
 			}
 		}
 
@@ -373,7 +375,7 @@ func (h *ImageMagickHandler) Handle(ctx context.Context, t *jwt.Token, b *api.Me
 	}()
 
 	// start imagemagick convert
-	log.Printf("Executing %+v\n", cmd)
+	log.Printf("[%s] [%s] hander: executing %+v\n", "ImageMagickHandler", mid, cmd)
 	if err := cmd.Start(); err != nil {
 		return ctx, err
 	}
