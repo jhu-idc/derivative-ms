@@ -15,7 +15,7 @@ import (
 
 const (
 	msgHeaderMessageId   = "message-id"
-	msgHeaderMessageDest = "message-destination"
+	msgHeaderMessageDest = "destination"
 )
 
 type stompHandler interface {
