@@ -14,7 +14,8 @@ import (
 )
 
 const (
-	msgHeaderMessageId = "message-id"
+	msgHeaderMessageId   = "message-id"
+	msgHeaderMessageDest = "message-destination"
 )
 
 type stompHandler interface {
@@ -61,16 +62,22 @@ var Body = func(message interface{}) (*api.MessageBody, error) {
 	return instance, nil
 }
 
-type messageLogger struct {}
+type messageLogger struct{}
 
-type messageIdHandler struct {}
+type messageIdHandler struct{}
 
-type bodyHandler struct {}
+type messageDestinationHandler struct{}
 
-type jwtHandler struct {}
+type bodyHandler struct{}
+
+type jwtHandler struct{}
 
 func (*messageIdHandler) handle(ctx context.Context, m *stomp.Message) (context.Context, error) {
 	return context.WithValue(ctx, api.MsgId, m.Header.Get(msgHeaderMessageId)), nil
+}
+
+func (*messageDestinationHandler) handle(ctx context.Context, m *stomp.Message) (context.Context, error) {
+	return context.WithValue(ctx, api.MsgId, m.Header.Get(msgHeaderMessageDest)), nil
 }
 
 func (*bodyHandler) handle(ctx context.Context, m *stomp.Message) (context.Context, error) {
@@ -188,7 +195,7 @@ func (l *ListenerImpl) Listen(ctx context.Context, handlers []api.Handler) error
 	if l.Debug {
 		stompHandlers = append(stompHandlers, &messageLogger{})
 	}
-	stompHandlers = append(stompHandlers, &messageIdHandler{}, &jwtHandler{}, &bodyHandler{})
+	stompHandlers = append(stompHandlers, &messageIdHandler{}, &messageDestinationHandler{}, &jwtHandler{}, &bodyHandler{})
 
 	return doSubscribe(l, ctx, stompHandlers, handlers)
 }
