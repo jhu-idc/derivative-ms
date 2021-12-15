@@ -1,18 +1,23 @@
 package main
 
 import (
+	"derivative-ms/api"
 	"derivative-ms/config"
+	"derivative-ms/env"
 	"derivative-ms/handler"
-	"derivative-ms/listener"
+	"derivative-ms/listen"
 	"flag"
 	"log"
 	"os"
+	"time"
 )
 
 const (
 	defaultHost    = "localhost"
 	defaultPort    = 61613
 	defaultAckMode = "client"
+	defaultUser    = ""
+	defaultTimeout = 30
 
 	argQueue   = "queue"
 	argBroker  = "host"
@@ -21,38 +26,31 @@ const (
 	argPass    = "pass"
 	argAckMode = "ack"
 	argConfig  = "config"
+	argVerbose = "verbose"
 
 	handlerType = "handler-type"
 	order       = "order"
 )
 
-var (
-	brokerHost *string
-	brokerPort *int
-	queue      *string
-	user       *string
-	pass       *string
-	ackMode    *string
-	cliConfig  *string
-)
-
 func main() {
-	// listen mode: hostname, port, client queue
-	brokerHost = flag.String(argBroker, defaultHost, "STOMP broker host name, e.g. 'islandora-idc.traefik.me'")
-	brokerPort = flag.Int(argPort, defaultPort, "STOMP broker port")
-	queue = flag.String(argQueue, "", "Queue to read messages from, e.g. 'islandora-connector-homarus' or 'ActiveMQ.DLQ'")
-	user = flag.String(argUser, "", "STOMP broker user name")
-	pass = flag.String(argPass, "", "STOMP broker password")
-	ackMode = flag.String(argAckMode, defaultAckMode, "STOMP acknowledgment mode, e.g. 'client' or 'auto'")
-	cliConfig = flag.String(argConfig, "", "Path to handler configuration file")
+	appConfig := &config.Config{
+		Cli: &config.Args{
+			BrokerHost:    flag.String(argBroker, defaultHost, "STOMP broker host name, e.g. 'islandora-idc.traefik.me'"),
+			BrokerPort:    flag.Int(argPort, defaultPort, "STOMP broker port"),
+			Queue:         flag.String(argQueue, "", "Queue to read messages from, e.g. 'islandora-connector-homarus' or 'ActiveMQ.DLQ'"),
+			User:          flag.String(argUser, defaultUser, "STOMP broker user name"),
+			Pass:          flag.String(argPass, "", "STOMP broker password"),
+			AckMode:       flag.String(argAckMode, defaultAckMode, "STOMP acknowledgment mode, e.g. 'client' or 'auto'"),
+			CliConfigFile: flag.String(argConfig, "", "Path to handler configuration file"),
+			Verbose:       flag.Bool(argVerbose, false, "enable verbose output"),
+		},
+	}
 	flag.Parse()
-	appConfig := &config.Config{}
-	appConfig.Resolve(*cliConfig)
+	appConfig.Resolve(*appConfig.Cli.CliConfigFile)
 
 	var (
 		handlerConfigs []config.Configuration
-		stompHandlers  []listener.StompHandler
-		bodyHandlers   []listener.Handler
+		handlers       []api.Handler
 		err            error
 	)
 
@@ -81,18 +79,14 @@ func main() {
 	// Sort the configurations by their order, ascending
 	config.Order(handlerConfigs)
 
-	// Configure the sorted handlers, keeping STOMP message handlers separate from STOMP message body handlers.
+	// Configure the sorted handlers
 	for _, handlerConfig := range handlerConfigs {
 		var h interface{}
 		switch handlerConfig.Type {
 		case "JWTLoggingHandler":
-			h = &listener.JWTLoggingHandler{}
+			h = &handler.JWTLoggingHandler{}
 		case "JWTHandler":
-			h = &listener.JWTHandler{}
-		case "MessageBody":
-			h = &listener.MessageBody{}
-		case "StompLoggerHandler":
-			h = &listener.StompLoggerHandler{}
+			h = &handler.JWTHandler{}
 		case "Pdf2TextHandler":
 			h = &handler.Pdf2TextHandler{}
 		case "TesseractHandler":
@@ -113,30 +107,23 @@ func main() {
 		}
 
 		log.Printf("activating handler: %s", handlerConfig.Key)
-
-		switch t := h.(type) {
-		case listener.StompHandler:
-			stompHandlers = append(stompHandlers, h.(listener.StompHandler))
-		case listener.Handler:
-			bodyHandlers = append(bodyHandlers, h.(listener.Handler))
-		default:
-			log.Fatalf("error configuring %s: unknown handler type %T", handlerConfig.Key, t)
-		}
+		handlers = append(handlers, h.(api.Handler))
 	}
 
-	l := listener.StompListener{
-		Host:    *brokerHost,
-		Port:    *brokerPort,
-		User:    *user,
-		Pass:    *pass,
-		Queue:   *queue,
-		AckMode: *ackMode,
-		StompHandler: listener.CompositeStompHandler{
-			Handlers: stompHandlers,
-		},
+	lc := &listen.ListenerConfig{
+		BrokerHost:  *appConfig.Cli.BrokerHost,
+		BrokerPort:  *appConfig.Cli.BrokerPort,
+		DialTimeout: time.Duration(env.GetIntOrDefault(config.VarDialTimeoutSeconds, defaultTimeout)) * time.Second,
+		Queue:       *appConfig.Cli.Queue,
+		User:        *appConfig.Cli.User,
+		Pass:        *appConfig.Cli.Pass,
+		AckMode:     api.AckMode(*appConfig.Cli.AckMode),
+		Proto:       api.Stomp,
+		Verbose:     *appConfig.Cli.Verbose,
 	}
 
-	err = l.Listen(handler.CompositeHandler{Handlers: bodyHandlers})
+	err = listen.Listen(lc, handlers)
+
 	if err != nil {
 		log.Fatalf("server: exiting with error %s", err)
 	}

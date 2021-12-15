@@ -18,7 +18,14 @@ const (
 
 	// VarHandlerConfig is the name of the environment variable containing the absolute path to the configuration
 	// location on the filesystem
-	VarHandlerConfig = "DERIVATIVE_HANDLER_CONFIG"
+	VarHandlerConfig       = "DERIVATIVE_HANDLER_CONFIG"
+	VarDialTimeoutSeconds  = "DERIVATIVE_DIAL_TIMEOUT_SECONDS"
+	VarDrupalJwtPublicKey  = "DRUPAL_JWT_PUBLIC_KEY"
+	VarDrupalJwtPrivateKey = "DRUPAL_JWT_PRIVATE_KEY"
+
+	HomarusDestination   = "/queue/islandora-connector-homarus"
+	HoudiniDestination   = "/queue/islandora-connector-houdini"
+	HypercubeDestination = "/queue/islandora-connector-ocr"
 )
 
 var (
@@ -33,9 +40,22 @@ var (
 //go:embed *.json
 var configFs embed.FS
 
+// Args captures the values of the command line
+type Args struct {
+	BrokerHost    *string
+	BrokerPort    *int
+	Queue         *string
+	User, Pass    *string
+	AckMode       *string
+	CliConfigFile *string
+	Verbose       *bool
+}
+
 // Config maintains the application configuration, including the configuration for each Handler.  The Resolve method
 // is used to populate this Config.
 type Config struct {
+	// Cli contains the command-line arguments
+	Cli *Args
 	// Embedded is true when the Location refers to a //go:embedded handler configuration
 	Embedded bool
 	// Location is a human-readable value that records the location of the handlers configuration.

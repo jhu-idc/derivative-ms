@@ -3,8 +3,12 @@ package handler
 import (
 	"bufio"
 	"context"
+	"crypto/rsa"
+	"crypto/x509"
+	"derivative-ms/api"
 	"derivative-ms/config"
-	"derivative-ms/listener"
+	"derivative-ms/env"
+	"encoding/pem"
 	"fmt"
 	"github.com/cristalhq/jwt/v4"
 	"io"
@@ -13,10 +17,11 @@ import (
 	"net/http"
 	"os/exec"
 	"strings"
+	"time"
 )
 
 type CompositeHandler struct {
-	Handlers []listener.Handler
+	Handlers []api.Handler
 }
 
 // TODO use plugin mechanism for handlers?
@@ -45,8 +50,8 @@ type FFMpegHandler struct {
 	CommandPath        string
 }
 
-func (h *TesseractHandler) Handle(ctx context.Context, b *listener.MessageBody) (context.Context, error) {
-	if ctx.Value(listener.MsgDestination).(string) != listener.HypercubeDestination {
+func (h *TesseractHandler) Handle(ctx context.Context, t *jwt.Token, b *api.MessageBody) (context.Context, error) {
+	if ctx.Value(api.MsgDestination).(string) != config.HypercubeDestination {
 		return ctx, nil
 	}
 
@@ -75,7 +80,7 @@ func (h *TesseractHandler) Handle(ctx context.Context, b *listener.MessageBody) 
 	}
 
 	// Buffer the source stream's first 512 bytes and sniff the content
-	sourceStream, err = getResourceStream(b.Attachment.Content.SourceUri, extractToken(ctx), nil)
+	sourceStream, err = getResourceStream(b.Attachment.Content.SourceUri, t, nil)
 	bufSource := bufio.NewReaderSize(sourceStream, 512)
 
 	if sniff, err := bufSource.Peek(512); err != nil {
@@ -126,7 +131,7 @@ func (h *TesseractHandler) Handle(ctx context.Context, b *listener.MessageBody) 
 		return ctx, err
 	}
 
-	_, err = putResourceStream(b.Attachment.Content.DestinationUri, extractToken(ctx), tStdout, map[string]string{
+	_, err = putResourceStream(b.Attachment.Content.DestinationUri, t, tStdout, map[string]string{
 		"Content-Type":     "text/plain",
 		"Content-Location": b.Attachment.Content.UploadUri,
 	})
@@ -156,8 +161,8 @@ func (h *TesseractHandler) Configure(c config.Configuration) error {
 	return nil
 }
 
-func (h *Pdf2TextHandler) Handle(ctx context.Context, b *listener.MessageBody) (context.Context, error) {
-	if ctx.Value(listener.MsgDestination).(string) != listener.HypercubeDestination {
+func (h *Pdf2TextHandler) Handle(ctx context.Context, t *jwt.Token, b *api.MessageBody) (context.Context, error) {
+	if ctx.Value(api.MsgDestination).(string) != config.HypercubeDestination {
 		return ctx, nil
 	}
 
@@ -186,7 +191,7 @@ func (h *Pdf2TextHandler) Handle(ctx context.Context, b *listener.MessageBody) (
 	}
 
 	// Buffer the source stream's first 512 bytes and sniff the content
-	sourceStream, err = getResourceStream(b.Attachment.Content.SourceUri, extractToken(ctx), nil)
+	sourceStream, err = getResourceStream(b.Attachment.Content.SourceUri, t, nil)
 	bufSource := bufio.NewReaderSize(sourceStream, 512)
 
 	if sniff, err := bufSource.Peek(512); err != nil {
@@ -224,7 +229,7 @@ func (h *Pdf2TextHandler) Handle(ctx context.Context, b *listener.MessageBody) (
 		return ctx, err
 	}
 
-	_, err = putResourceStream(b.Attachment.Content.DestinationUri, extractToken(ctx), tStdout, map[string]string{
+	_, err = putResourceStream(b.Attachment.Content.DestinationUri, t, tStdout, map[string]string{
 		"Content-Type":     "text/plain",
 		"Content-Location": b.Attachment.Content.UploadUri,
 	})
@@ -254,8 +259,8 @@ func (h *Pdf2TextHandler) Configure(c config.Configuration) error {
 	return nil
 }
 
-func (h *ImageMagickHandler) Handle(ctx context.Context, b *listener.MessageBody) (context.Context, error) {
-	if ctx.Value(listener.MsgDestination).(string) != listener.HoudiniDestination {
+func (h *ImageMagickHandler) Handle(ctx context.Context, t *jwt.Token, b *api.MessageBody) (context.Context, error) {
+	if ctx.Value(api.MsgDestination).(string) != config.HoudiniDestination {
 		return ctx, nil
 	}
 
@@ -303,7 +308,7 @@ func (h *ImageMagickHandler) Handle(ctx context.Context, b *listener.MessageBody
 	)
 
 	// GET original image from Drupal
-	sourceStream, err = getResourceStream(b.Attachment.Content.SourceUri, extractToken(ctx), nil)
+	sourceStream, err = getResourceStream(b.Attachment.Content.SourceUri, t, nil)
 	defer sourceStream.Close()
 	if err != nil {
 		return ctx, err
@@ -337,7 +342,7 @@ func (h *ImageMagickHandler) Handle(ctx context.Context, b *listener.MessageBody
 	}
 
 	// PUT the derivative to Drupal, using stdout from imagemagick
-	_, err = putResourceStream(b.Attachment.Content.DestinationUri, extractToken(ctx), imgStdout, map[string]string{
+	_, err = putResourceStream(b.Attachment.Content.DestinationUri, t, imgStdout, map[string]string{
 		"Content-Location": b.Attachment.Content.UploadUri,
 		"Content-Type":     b.Attachment.Content.MimeType,
 	})
@@ -383,13 +388,13 @@ func (h *ImageMagickHandler) Configure(c config.Configuration) error {
 	return nil
 }
 
-func (h *FFMpegHandler) Handle(ctx context.Context, b *listener.MessageBody) (context.Context, error) {
+func (h *FFMpegHandler) Handle(ctx context.Context, t *jwt.Token, b *api.MessageBody) (context.Context, error) {
 	const (
 		// TODO externalize
 		mp4Args = "-vcodec libx264 -preset medium -acodec aac -strict -2 -ab 128k -ac 2 -async 1 -movflags frag_keyframe+empty_moov"
 	)
 
-	if ctx.Value(listener.MsgDestination).(string) != listener.HomarusDestination {
+	if ctx.Value(api.MsgDestination).(string) != config.HomarusDestination {
 		return ctx, nil
 	}
 
@@ -423,7 +428,7 @@ func (h *FFMpegHandler) Handle(ctx context.Context, b *listener.MessageBody) (co
 	var cmdArgs []string
 	cmdArgs = append(cmdArgs, h.CommandPath)
 	//cmdArgs = append(cmdArgs, "-loglevel", "debug")
-	cmdArgs = append(cmdArgs, "-headers", fmt.Sprintf("Authorization: %s", asBearer(extractToken(ctx))))
+	cmdArgs = append(cmdArgs, "-headers", fmt.Sprintf("Authorization: %s", asBearer(t)))
 	cmdArgs = append(cmdArgs, "-i", b.Attachment.Content.SourceUri)
 	if trimmedArgs := strings.TrimSpace(b.Attachment.Content.Args); len(trimmedArgs) > 0 {
 		for _, addlArg := range strings.Split(trimmedArgs, " ") {
@@ -466,7 +471,7 @@ func (h *FFMpegHandler) Handle(ctx context.Context, b *listener.MessageBody) (co
 	}
 
 	// PUT the derivative to Drupal, using stdout from ffmpeg
-	_, err = putResourceStream(b.Attachment.Content.DestinationUri, extractToken(ctx), ffmpegStdout, map[string]string{
+	_, err = putResourceStream(b.Attachment.Content.DestinationUri, t, ffmpegStdout, map[string]string{
 		"Content-Location": b.Attachment.Content.UploadUri,
 		"Content-Type":     b.Attachment.Content.MimeType,
 	})
@@ -512,11 +517,11 @@ func (h *FFMpegHandler) Configure(c config.Configuration) error {
 	return nil
 }
 
-func (h CompositeHandler) Handle(ctx context.Context, b *listener.MessageBody) (context.Context, error) {
+func (h CompositeHandler) Handle(ctx context.Context, t *jwt.Token, b *api.MessageBody) (context.Context, error) {
 	var err error
 
 	for _, handler := range h.Handlers {
-		if ctx, err = handler.Handle(ctx, b); err != nil {
+		if ctx, err = handler.Handle(ctx, t, b); err != nil {
 			return ctx, err
 		}
 	}
@@ -601,10 +606,209 @@ func doRequest(method, uri string, authToken *jwt.Token, body io.ReadCloser, hea
 	return res.Body, res.StatusCode, res.Status, nil
 }
 
-func extractToken(ctx context.Context) *jwt.Token {
-	return ctx.Value(listener.MsgJwt).(*jwt.Token)
-}
-
 func asBearer(token *jwt.Token) string {
 	return fmt.Sprintf("Bearer %s", token)
+}
+
+type JWTHandler struct {
+	config.Configuration
+	RejectIfTokenMissing bool `json:"requireTokens"`
+	VerifyTokens         bool `json:"verifyTokens"`
+}
+
+type JWTLoggingHandler struct {
+	config.Configuration
+}
+
+func (h *JWTLoggingHandler) Configure(c config.Configuration) error {
+	// no-op
+	return nil
+}
+
+func (h *JWTLoggingHandler) Handle(ctx context.Context, t *jwt.Token, b *api.MessageBody) (context.Context, error) {
+	// TODO: handle a nil token, congruent with handler configuration
+	var err error
+	mid := ctx.Value(api.MsgId)
+	privateKey := []byte(env.GetOrDefault(config.VarDrupalJwtPrivateKey, ""))
+	publicKey := []byte(env.GetOrDefault(config.VarDrupalJwtPublicKey, ""))
+
+	err = verify(t, privateKey, publicKey)
+
+	if err != nil {
+		log.Printf("[%s] [%s] handler: JWT could not be verified: %s", "JWTLoggingHandler", mid, err)
+	} else {
+		log.Printf("[%s] [%s] handler: JWT verified", "JWTLoggingHandler", mid)
+	}
+
+	// Decode all claims and log them
+	claims := make(map[string]interface{})
+	if err := t.DecodeClaims(&claims); err != nil {
+		log.Printf("[%s] [%s] handler: error decoding JWT claims: %s", "JWTLoggingHandler", mid, err)
+	}
+
+	expired := time.Time{}
+	builder := strings.Builder{}
+	builder.WriteString("JWT claims:\n")
+	for k, v := range claims {
+		switch k {
+		case "exp":
+			expTime := time.Unix(int64(v.(float64)), 0)
+			if time.Now().After(expTime) {
+				expired = expTime
+			}
+			builder.WriteString(fmt.Sprintf("  %s: %v (%s)\n", k, v, expTime.Format(time.RFC3339)))
+		case "iat":
+			builder.WriteString(fmt.Sprintf("  %s: %v (%s)\n", k, v, time.Unix(int64(v.(float64)), 0).Format(time.RFC3339)))
+		default:
+			builder.WriteString(fmt.Sprintf("  %s: %v\n", k, v))
+		}
+	}
+
+	log.Printf("[%s] [%s] handler: %s", "JWTLoggingHandler", mid, builder.String())
+	if !expired.IsZero() {
+		log.Printf("[%s] [%s] handler: JWT expired at %s", "JWTLoggingHandler", mid, expired.Format(time.RFC3339))
+	}
+
+	return ctx, nil
+}
+
+func (h *JWTHandler) Handle(ctx context.Context, t *jwt.Token, m *api.MessageBody) (context.Context, error) {
+	// TODO: handle a nil token, congruent with handler configuration
+	mId := ctx.Value(api.MsgId)
+
+	// FIXME: we don't need a public key for RS256, and we may not need a "private" key for other algorithms.
+	//  Figure out appropriate variable names, but we shouldn't panic until we know what keys are needed from the
+	//  environment
+	var publicKey = []byte(env.GetOrDefault(config.VarDrupalJwtPublicKey, ""))
+	var privateKey = []byte(env.GetOrDefault(config.VarDrupalJwtPrivateKey, ""))
+	var err error
+
+	err = verify(t, privateKey, publicKey)
+
+	if err != nil {
+		return ctx, fmt.Errorf("handler: unable to verify JWT for message-id %s: %w",
+			mId, err)
+	}
+
+	// Decode registered claims and check expiration
+	rClaims := jwt.RegisteredClaims{}
+
+	if err := t.DecodeClaims(&jwt.RegisteredClaims{}); err != nil {
+		return ctx, fmt.Errorf("handler: error decoding JWT claims for message-id '%s': %w", mId, err)
+	} else if !rClaims.IsValidExpiresAt(time.Now()) {
+		return ctx, fmt.Errorf("handler: JWT for message-id %s is expired on %s", mId, rClaims.ExpiresAt.Format(time.RFC3339))
+	}
+
+	ctx = context.WithValue(ctx, api.MsgJwt, t)
+
+	log.Printf("[%s] [%s] handler: verified JWT for message %s", "JWTHandler", mId, mId)
+	return ctx, nil
+}
+
+func verify(token *jwt.Token, privateKey, publicKey []byte) error {
+
+	var (
+		verifier jwt.Verifier
+		err      error
+	)
+
+	switch token.Header().Algorithm {
+	case jwt.EdDSA:
+		verifier, err = jwt.NewVerifierEdDSA(publicKey)
+
+	case jwt.HS256:
+		fallthrough
+	case jwt.HS384:
+		fallthrough
+	case jwt.HS512:
+		// TODO
+		verifier, err = jwt.NewVerifierHS(token.Header().Algorithm, privateKey)
+
+	case jwt.RS256:
+		fallthrough
+	case jwt.RS384:
+		fallthrough
+	case jwt.RS512:
+		block, _ := pem.Decode(publicKey)
+		blockType := "RSA PUBLIC KEY"
+		if block == nil || block.Type != blockType {
+			return fmt.Errorf("handler: unable to verify JWT, invalid PEM encoded %s", blockType)
+		}
+		if pubKey, err := x509.ParsePKIXPublicKey(block.Bytes); err != nil {
+			return fmt.Errorf("handler: unable to verify JWT, invalid PEM encoded %s: %w", blockType, err)
+		} else {
+			if rsaKey, ok := pubKey.(*rsa.PublicKey); ok {
+				verifier, err = jwt.NewVerifierRS(token.Header().Algorithm, rsaKey)
+			} else {
+				return fmt.Errorf("handler: unable to verify JWT, need %T but got %T", &rsa.PublicKey{}, pubKey)
+			}
+		}
+
+	case jwt.ES256:
+		fallthrough
+	case jwt.ES384:
+		fallthrough
+	case jwt.ES512:
+		block, _ := pem.Decode(privateKey)
+		blockType := "EC PRIVATE KEY"
+		if block == nil || block.Type != blockType {
+			return fmt.Errorf("handler: unable to verify JWT, invalid PEM encoded %s", blockType)
+		}
+		if key, err := x509.ParseECPrivateKey(block.Bytes); err != nil {
+			return fmt.Errorf("handler: unable to verify JWT, invalid PEM encoded %s: %w", blockType, err)
+		} else {
+			verifier, err = jwt.NewVerifierES(token.Header().Algorithm, &key.PublicKey)
+		}
+
+	case jwt.PS256:
+		fallthrough
+	case jwt.PS384:
+		fallthrough
+	case jwt.PS512:
+		block, _ := pem.Decode(publicKey)
+		blockType := "RSA PUBLIC KEY"
+		if block == nil || block.Type != blockType {
+			return fmt.Errorf("handler: unable to verify JWT, invalid PEM encoded %s", blockType)
+		}
+		if pubKey, err := x509.ParsePKCS1PublicKey(block.Bytes); err != nil {
+			return fmt.Errorf("handler: unable to verify JWT, invalid PEM encoded %s: %w", blockType, err)
+		} else {
+			verifier, err = jwt.NewVerifierPS(token.Header().Algorithm, pubKey)
+		}
+
+	default:
+		return fmt.Errorf("handler: unknown or unsupported JWT algorithm '%s'", token.Header().Algorithm)
+	}
+
+	if err != nil {
+		return fmt.Errorf("handler: unable instantiate JWT Verifier: %w", err)
+	}
+
+	return verifier.Verify(token)
+}
+
+func (h *JWTHandler) Configure(c config.Configuration) error {
+	var (
+		jwtConfig *map[string]interface{}
+		err       error
+	)
+	h.Configuration = c
+
+	if jwtConfig, err = h.UnmarshalHandlerConfig(); err != nil {
+		return fmt.Errorf("handler: unable to configure JWTHandler: %w", err)
+	}
+
+	if requireTokens, err := config.BoolValue(jwtConfig, "requireTokens"); err != nil {
+		return fmt.Errorf("listener: unable to configure JWTHandler '%s': %w", h.Key, err)
+	} else {
+		h.RejectIfTokenMissing = requireTokens
+	}
+
+	if verifyTokens, err := config.BoolValue(jwtConfig, "verifyTokens"); err != nil {
+		return fmt.Errorf("listener: unable to configure JWTHandler '%s': %w", h.Key, err)
+	} else {
+		h.VerifyTokens = verifyTokens
+	}
+
+	return nil
 }

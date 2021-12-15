@@ -3,19 +3,11 @@
     "handler-type": "JWTLoggingHandler",
     "order": 10
   },
-  "stomp-logger": {
-    "handler-type": "StompLoggerHandler",
-    "order": 20
-  },
   "jwt": {
     "handler-type": "JWTHandler",
     "order": 30,
     "requireTokens": true,
     "verifyTokens": true
-  },
-  "body": {
-    "handler-type": "MessageBody",
-    "order": 40
   },
   "convert": {
     "handler-type": "ImageMagickHandler",
