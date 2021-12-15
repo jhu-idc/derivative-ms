@@ -77,7 +77,7 @@ func (*messageIdHandler) handle(ctx context.Context, m *stomp.Message) (context.
 }
 
 func (*messageDestinationHandler) handle(ctx context.Context, m *stomp.Message) (context.Context, error) {
-	return context.WithValue(ctx, api.MsgId, m.Header.Get(msgHeaderMessageDest)), nil
+	return context.WithValue(ctx, api.MsgDestination, m.Header.Get(msgHeaderMessageDest)), nil
 }
 
 func (*bodyHandler) handle(ctx context.Context, m *stomp.Message) (context.Context, error) {
