@@ -2,6 +2,7 @@ package handler
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"crypto/rsa"
 	"crypto/x509"
@@ -320,6 +321,8 @@ func (h *ImageMagickHandler) Handle(ctx context.Context, t *jwt.Token, b *api.Me
 		imgStdin io.WriteCloser
 		// imagemagick stdout
 		imgStdout io.ReadCloser
+		// imagemagick stderr
+		imgStderr io.ReadCloser
 
 		err error
 	)
@@ -331,11 +334,14 @@ func (h *ImageMagickHandler) Handle(ctx context.Context, t *jwt.Token, b *api.Me
 		return ctx, err
 	}
 
-	// open imagemagick stdin and stdout
+	// open imagemagick stdin, stdout, and stderr
 	if imgStdin, err = cmd.StdinPipe(); err != nil {
 		return ctx, err
 	}
 	if imgStdout, err = cmd.StdoutPipe(); err != nil {
+		return ctx, err
+	}
+	if imgStderr, err = cmd.StderrPipe(); err != nil {
 		return ctx, err
 	}
 
@@ -350,6 +356,20 @@ func (h *ImageMagickHandler) Handle(ctx context.Context, t *jwt.Token, b *api.Me
 			}
 		}()
 		_, ioErr = io.Copy(imgStdin, sourceStream)
+	}()
+
+	// if there is an error when exiting, attempt to copy out stderr, otherwise close it
+	defer func() {
+		if err != nil {
+			b := &bytes.Buffer{}
+			if _, err := io.Copy(b, imgStderr); err != nil {
+				log.Printf("handler: there was an error executing ImageMagick, but the stderr could not be captured: '%s'", err)
+			} else {
+				log.Printf("handler: there was an error executing ImageMagick, stderr follows:\n%s", b)
+			}
+		}
+
+		imgStderr.Close()
 	}()
 
 	// start imagemagick convert
