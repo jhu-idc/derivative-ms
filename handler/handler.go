@@ -15,6 +15,7 @@ import (
 	"io/ioutil"
 	"log"
 	"net/http"
+	"os"
 	"os/exec"
 	"strings"
 	"time"
@@ -263,6 +264,22 @@ func (h *ImageMagickHandler) Handle(ctx context.Context, t *jwt.Token, b *api.Me
 	if ctx.Value(api.MsgDestination).(string) != config.HoudiniDestination {
 		return ctx, nil
 	}
+
+	// Remove any tmp files left behind due to a crash or unclean shutdown of Imagemagick
+	defer func() {
+		entries, err := os.ReadDir(os.TempDir())
+		if err != nil {
+			log.Printf("handle: unable to clean up Imagemagick files '%s'", err)
+			return
+		}
+
+		for _, entry := range entries {
+			if strings.HasPrefix(entry.Name(), "magick-") {
+				info, _ := entry.Info()
+				log.Printf("handler: cleaning up Imagemagick temporary file '%s': %v", entry.Name(), info)
+			}
+		}
+	}()
 
 	// Set a default mime type (parity with PHP controller)
 	if b.Attachment.Content.MimeType == "" {
