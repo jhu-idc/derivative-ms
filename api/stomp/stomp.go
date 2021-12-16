@@ -201,16 +201,18 @@ func (l *ListenerImpl) Listen(ctx context.Context, handlers []api.Handler) error
 }
 
 func doSubscribe(l *ListenerImpl, ctx context.Context, stompHandlers []stompHandler, handlers []api.Handler) (err error) {
+
+nextmsg:
 	for stompMsg := range l.sub.C {
 
 		// Run internal stomp message handlers first, so they can set the proper state on the context
 		for _, h := range stompHandlers {
 			if ctx, err = h.handle(ctx, stompMsg); err != nil {
-				log.Printf("stomp: error handling message: %s", err)
+				log.Printf("stomp: internal error handling message [%s]: %s", stompMsg.Header.Get(msgHeaderMessageId), err)
 				if nackErr := l.conn.Nack(stompMsg); nackErr != nil {
-					log.Printf("stomp: error nacking message: %s: %s", err, stompMsg.Header.Get(msgHeaderMessageId))
+					log.Printf("stomp: internal error nacking message: %s: %s", err, stompMsg.Header.Get(msgHeaderMessageId))
 				}
-				continue
+				continue nextmsg
 			}
 		}
 
@@ -220,17 +222,17 @@ func doSubscribe(l *ListenerImpl, ctx context.Context, stompHandlers []stompHand
 		// a body is required, the jwt may be optional
 		if body == nil {
 			l.conn.Nack(stompMsg)
-			continue
+			continue nextmsg
 		}
 
 		// execute publicly configured handlers
 		for _, h := range handlers {
 			if ctx, err = h.Handle(ctx, token.(*jwt.Token), body.(*api.MessageBody)); err != nil {
-				log.Printf("stomp: error handling message: %s", err)
+				log.Printf("stomp: error handling message [%s]: %s", stompMsg.Header.Get(msgHeaderMessageId), err)
 				if nackErr := l.conn.Nack(stompMsg); nackErr != nil {
 					log.Printf("stomp: error nacking message: %s: %s", err, stompMsg.Header.Get(msgHeaderMessageId))
 				}
-				continue
+				continue nextmsg
 			}
 		}
 
