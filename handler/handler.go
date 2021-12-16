@@ -433,9 +433,13 @@ func (h *ImageMagickHandler) configure(c config.Configuration, ignoreErr bool) e
 		h.AcceptedFormats[f] = struct{}{}
 	}
 
-	h.Drupal = drupal.HttpImpl{HttpClient: drupal.DefaultClient}
+	if h.Drupal == nil {
+		h.Drupal = drupal.HttpImpl{HttpClient: drupal.DefaultClient}
+	}
 
-	h.CommandBuilder = cmd.ImageMagick{}
+	if h.CommandBuilder == nil {
+		h.CommandBuilder = cmd.ImageMagick{}
+	}
 
 	return nil
 }
@@ -500,6 +504,10 @@ func (h *FFMpegHandler) Handle(ctx context.Context, t *jwt.Token, b *api.Message
 }
 
 func (h *FFMpegHandler) Configure(c config.Configuration) error {
+	return h.configure(c, false)
+}
+
+func (h *FFMpegHandler) configure(c config.Configuration, ignoreErr bool) error {
 	var (
 		ffmpegConfig *map[string]interface{}
 		formats      map[string]interface{}
@@ -507,19 +515,19 @@ func (h *FFMpegHandler) Configure(c config.Configuration) error {
 	)
 	h.Configuration = c
 
-	if ffmpegConfig, err = h.UnmarshalHandlerConfig(); err != nil {
+	if ffmpegConfig, err = h.UnmarshalHandlerConfig(); err != nil && !ignoreErr {
 		return fmt.Errorf("handler: unable to configure FFMpegHandler: %w", err)
 	}
 
-	if h.CommandPath, err = config.StringValue(ffmpegConfig, "commandPath"); err != nil {
+	if h.CommandPath, err = config.StringValue(ffmpegConfig, "commandPath"); err != nil && !ignoreErr {
 		return fmt.Errorf("handler: unable to configure FFMpegHandler '%s', parameter '%s': %w", h.Key, "commandPath", err)
 	}
 
-	if h.DefaultMediaType, err = config.StringValue(ffmpegConfig, "defaultMediaType"); err != nil {
+	if h.DefaultMediaType, err = config.StringValue(ffmpegConfig, "defaultMediaType"); err != nil && !ignoreErr {
 		return fmt.Errorf("handler: unable to configure FFMpegHandler '%s', parameter '%s': %w", h.Key, "defaultMediaType", err)
 	}
 
-	if formats, err = config.MapValue(ffmpegConfig, "acceptedFormatsMap"); err != nil {
+	if formats, err = config.MapValue(ffmpegConfig, "acceptedFormatsMap"); err != nil && !ignoreErr {
 		return fmt.Errorf("handler: unable to configure FFMpegHandler '%s', parameter '%s': %w", h.Key, "acceptedFormatsMap", err)
 	}
 
@@ -529,9 +537,13 @@ func (h *FFMpegHandler) Configure(c config.Configuration) error {
 		h.AcceptedFormatsMap[k] = v.(string)
 	}
 
-	h.Drupal = drupal.HttpImpl{HttpClient: drupal.DefaultClient}
+	if h.Drupal == nil {
+		h.Drupal = drupal.HttpImpl{HttpClient: drupal.DefaultClient}
+	}
 
-	h.CommandBuilder = cmd.FFMpeg{AcceptedFormatsMap: h.AcceptedFormatsMap}
+	if h.CommandBuilder == nil {
+		h.CommandBuilder = cmd.FFMpeg{AcceptedFormatsMap: h.AcceptedFormatsMap}
+	}
 
 	return nil
 }

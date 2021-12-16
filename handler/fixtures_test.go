@@ -12,14 +12,55 @@ import (
 )
 
 type mockDrupal struct {
+	put struct {
+		uri     string
+		reqCtx  request.Context
+		body    []byte
+		readErr error
+
+		retCode int
+		retErr  error
+	}
+
+	get struct {
+		uri    string
+		reqCtx request.Context
+		body   io.ReadCloser
+
+		retCode int
+		retErr  error
+		retBody io.ReadCloser
+	}
 }
 
-func (m mockDrupal) Put(reqCtx request.Context, uri string, body io.ReadCloser) (int, error) {
-	return 200, nil
+func (m *mockDrupal) Put(reqCtx request.Context, uri string, body io.ReadCloser) (retCode int, retErr error) {
+	m.put.reqCtx = reqCtx
+	m.put.uri = uri
+	m.put.body, m.put.readErr = ioutil.ReadAll(body)
+
+	if m.put.retCode == 0 {
+		retCode = 200
+	}
+
+	if m.put.retErr != nil {
+		retErr = m.put.retErr
+	}
+
+	return
 }
 
-func (m mockDrupal) Get(reqCtx request.Context, uri string) (io.ReadCloser, error) {
-	return ioutil.NopCloser(&bytes.Buffer{}), nil
+func (m *mockDrupal) Get(reqCtx request.Context, uri string) (retBody io.ReadCloser, retErr error) {
+	m.get.reqCtx = reqCtx
+	m.get.uri = uri
+
+	if m.get.retBody == nil {
+		retBody = ioutil.NopCloser(&bytes.Buffer{})
+	}
+	if m.get.retErr != nil {
+		retErr = m.get.retErr
+	}
+
+	return
 }
 
 type mockCmd struct {
