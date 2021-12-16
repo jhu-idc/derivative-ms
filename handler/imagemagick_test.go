@@ -6,6 +6,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"io/fs"
+	"os/exec"
 	"testing"
 )
 
@@ -43,4 +44,35 @@ func Test_ImageMagick_CommandNotFound(t *testing.T) {
 
 	_, err := underTest.Handle(ctx.ctx, nil, &api.MessageBody{})
 	assert.ErrorIs(t, err, fs.ErrNotExist)
+}
+
+func Test_ImageMagick_ExecOk(t *testing.T) {
+	// create a context containing the necessary information extracted from the STOMP message
+	ctx := newContext("moo-msg-id", config.HoudiniDestination, api.MessageBody{})
+
+	// create a standard configuration for the handler
+	configuration := config.Configuration{
+		Key: "convertTest",
+		Config: &config.Config{
+			Json: map[string]interface{}{
+				"convertTest": imDefaultConfig,
+			},
+		},
+	}
+
+	// instantiate and configure the handler, ignoring any configuration errors
+	underTest := &ImageMagickHandler{}
+	require.Nil(t, underTest.configure(configuration, true))
+
+	// override/set a mock drupal client and a command builder
+	underTest.Drupal = mockDrupal{}
+	echoPath, err := exec.LookPath("echo")
+	require.Nil(t, err)
+	underTest.CommandBuilder = &mockCmd{cmd: &exec.Cmd{
+		Path: echoPath,
+		Args: []string{"hello", "world"},
+	}}
+
+	_, err = underTest.Handle(ctx.ctx, nil, &api.MessageBody{})
+	assert.Nil(t, err)
 }

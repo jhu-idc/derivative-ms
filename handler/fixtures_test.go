@@ -5,8 +5,10 @@ import (
 	"context"
 	"derivative-ms/api"
 	"derivative-ms/drupal/request"
+	"github.com/cristalhq/jwt/v4"
 	"io"
 	"io/ioutil"
+	"os/exec"
 )
 
 type mockDrupal struct {
@@ -18,6 +20,14 @@ func (m mockDrupal) Put(reqCtx request.Context, uri string, body io.ReadCloser) 
 
 func (m mockDrupal) Get(reqCtx request.Context, uri string) (io.ReadCloser, error) {
 	return ioutil.NopCloser(&bytes.Buffer{}), nil
+}
+
+type mockCmd struct {
+	cmd *exec.Cmd
+}
+
+func (m *mockCmd) Build(commandPath string, token *jwt.Token, body *api.MessageBody) (*exec.Cmd, error) {
+	return m.cmd, nil
 }
 
 type testContext interface {

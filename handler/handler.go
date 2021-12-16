@@ -7,6 +7,7 @@ import (
 	"crypto/rsa"
 	"crypto/x509"
 	"derivative-ms/api"
+	"derivative-ms/cmd"
 	"derivative-ms/config"
 	"derivative-ms/drupal"
 	"derivative-ms/drupal/request"
@@ -34,6 +35,7 @@ type CompositeHandler struct {
 type ImageMagickHandler struct {
 	config.Configuration
 	Drupal           drupal.Client
+	CommandBuilder   cmd.Builder
 	DefaultMediaType string
 	AcceptedFormats  map[string]struct{}
 	CommandPath      string
@@ -41,13 +43,15 @@ type ImageMagickHandler struct {
 
 type TesseractHandler struct {
 	config.Configuration
-	Drupal      drupal.Client
-	CommandPath string
+	Drupal         drupal.Client
+	CommandBuilder cmd.Builder
+	CommandPath    string
 }
 
 type Pdf2TextHandler struct {
 	config.Configuration
 	Drupal          drupal.Client
+	CommandBuilder  cmd.Builder
 	CommandPath     string
 	AcceptedFormats map[string]struct{}
 }
@@ -55,6 +59,7 @@ type Pdf2TextHandler struct {
 type FFMpegHandler struct {
 	config.Configuration
 	Drupal             drupal.Client
+	CommandBuilder     cmd.Builder
 	DefaultMediaType   string
 	AcceptedFormatsMap map[string]string
 	CommandPath        string
@@ -78,19 +83,13 @@ func (h *TesseractHandler) Handle(ctx context.Context, t *jwt.Token, b *api.Mess
 		logger = newLogger("TesseractHandler", ctx.Value(api.MsgId))
 
 		reqCtx = request.New().WithToken(t)
+
+		cmd *exec.Cmd
 	)
 
-	var cmdArgs []string
-	cmdArgs = append(cmdArgs, h.CommandPath)
-	cmdArgs = append(cmdArgs, "stdin", "stdout")
-	if trimmedArgs := strings.TrimSpace(b.Attachment.Content.Args); len(trimmedArgs) > 0 {
-		for _, addlArg := range strings.Split(trimmedArgs, " ") {
-			cmdArgs = append(cmdArgs, addlArg)
-		}
-	}
-	cmd := &exec.Cmd{
-		Path: h.CommandPath,
-		Args: cmdArgs,
+	cmd, err = h.CommandBuilder.Build(h.CommandPath, t, b)
+	if err != nil {
+		return ctx, err
 	}
 
 	// Buffer the source stream's first 512 bytes and sniff the content
@@ -173,6 +172,8 @@ func (h *TesseractHandler) Configure(c config.Configuration) error {
 
 	h.Drupal = drupal.HttpImpl{HttpClient: drupal.DefaultClient}
 
+	h.CommandBuilder = &cmd.Tesseract{}
+
 	return nil
 }
 
@@ -194,19 +195,13 @@ func (h *Pdf2TextHandler) Handle(ctx context.Context, t *jwt.Token, b *api.Messa
 		logger = newLogger("Pdf2TextHandler", ctx.Value(api.MsgId))
 
 		reqCtx = request.New().WithToken(t)
+
+		cmd *exec.Cmd
 	)
 
-	var cmdArgs []string
-	cmdArgs = append(cmdArgs, h.CommandPath)
-	if trimmedArgs := strings.TrimSpace(b.Attachment.Content.Args); len(trimmedArgs) > 0 {
-		for _, addlArg := range strings.Split(trimmedArgs, " ") {
-			cmdArgs = append(cmdArgs, addlArg)
-		}
-	}
-	cmdArgs = append(cmdArgs, "-", "-")
-	cmd := &exec.Cmd{
-		Path: h.CommandPath,
-		Args: cmdArgs,
+	cmd, err = h.CommandBuilder.Build(h.CommandPath, t, b)
+	if err != nil {
+		return ctx, err
 	}
 
 	// Buffer the source stream's first 512 bytes and sniff the content
@@ -276,6 +271,8 @@ func (h *Pdf2TextHandler) Configure(c config.Configuration) error {
 
 	h.Drupal = drupal.HttpImpl{HttpClient: drupal.DefaultClient}
 
+	h.CommandBuilder = cmd.Pdf2Text{}
+
 	return nil
 }
 
@@ -283,8 +280,13 @@ func (h *ImageMagickHandler) Handle(ctx context.Context, t *jwt.Token, b *api.Me
 	if ctx.Value(api.MsgDestination).(string) != config.HoudiniDestination {
 		return ctx, nil
 	}
-	mid := ctx.Value(api.MsgId)
-	logger := newLogger("ImageMagickHandler", mid)
+
+	var (
+		mid    = ctx.Value(api.MsgId)
+		logger = newLogger("ImageMagickHandler", mid)
+		cmd    *exec.Cmd
+		err    error
+	)
 
 	// Remove any tmp files left behind due to a crash or unclean shutdown of Imagemagick
 	defer func() {
@@ -307,28 +309,13 @@ func (h *ImageMagickHandler) Handle(ctx context.Context, t *jwt.Token, b *api.Me
 		b.Attachment.Content.MimeType = h.DefaultMediaType
 	}
 
-	convertFormat := b.Attachment.Content.MimeType[strings.LastIndex(b.Attachment.Content.MimeType, "/")+1:]
-
 	// Map the requested IANA media type to a supported imagemagick output format
 	if _, ok := h.AcceptedFormats[b.Attachment.Content.MimeType]; !ok {
 		return ctx, fmt.Errorf("[%s] [%s] handler: convert does not support mime type '%s'", "ImageMagickHandler", mid, b.Attachment.Content.MimeType)
 	}
 
-	// Manually compose the command arguments so that the additional args supplied with the message
-	// are properly parsed
-	var cmdArgs []string
-	cmdArgs = append(cmdArgs, h.CommandPath)
-	cmdArgs = append(cmdArgs, "-")
-	// "-thumbnail 100x100", or ""
-	if trimmedArgs := strings.TrimSpace(b.Attachment.Content.Args); len(trimmedArgs) > 0 {
-		for _, addlArg := range strings.Split(trimmedArgs, " ") {
-			cmdArgs = append(cmdArgs, addlArg)
-		}
-	}
-	cmdArgs = append(cmdArgs, fmt.Sprintf("%s:-", convertFormat))
-	cmd := &exec.Cmd{
-		Path: h.CommandPath,
-		Args: cmdArgs,
+	if cmd, err = h.CommandBuilder.Build(h.CommandPath, t, b); err != nil {
+		return ctx, err
 	}
 
 	// GET the original image from Drupal
@@ -345,8 +332,6 @@ func (h *ImageMagickHandler) Handle(ctx context.Context, t *jwt.Token, b *api.Me
 		imgStderr io.ReadCloser
 
 		reqCtx = request.New().WithToken(t)
-
-		err error
 	)
 
 	// GET original image from Drupal
@@ -450,15 +435,12 @@ func (h *ImageMagickHandler) configure(c config.Configuration, ignoreErr bool) e
 
 	h.Drupal = drupal.HttpImpl{HttpClient: drupal.DefaultClient}
 
+	h.CommandBuilder = cmd.ImageMagick{}
+
 	return nil
 }
 
 func (h *FFMpegHandler) Handle(ctx context.Context, t *jwt.Token, b *api.MessageBody) (context.Context, error) {
-	const (
-		// TODO externalize
-		mp4Args = "-vcodec libx264 -preset medium -acodec aac -strict -2 -ab 128k -ac 2 -async 1 -movflags frag_keyframe+empty_moov"
-	)
-
 	if ctx.Value(api.MsgDestination).(string) != config.HomarusDestination {
 		return ctx, nil
 	}
@@ -470,54 +452,20 @@ func (h *FFMpegHandler) Handle(ctx context.Context, t *jwt.Token, b *api.Message
 		b.Attachment.Content.MimeType = h.DefaultMediaType
 	}
 
-	// Map the requested IANA media type to a supported FFmpeg output format
-	var outputFormat string
-	if format, ok := h.AcceptedFormatsMap[b.Attachment.Content.MimeType]; !ok {
-		return ctx, fmt.Errorf("handler: ffmpeg does not support mime type '%s'", b.Attachment.Content.MimeType)
-	} else {
-		outputFormat = format
-	}
-
-	// Apply special arguments for the mp4 output format
-	if "mp4" == outputFormat {
-		if len(strings.TrimSpace(b.Attachment.Content.Args)) > 0 {
-			b.Attachment.Content.Args = fmt.Sprintf("%s %s", strings.TrimSpace(b.Attachment.Content.Args), mp4Args)
-		} else {
-			b.Attachment.Content.Args = mp4Args
-		}
-	}
-
-	// command string from Homarus PHP controller
-	// $cmd_string = "$this->executable -headers $headers -i $source  $args $cmd_params -f $format -";
-
-	// Manually compose the command arguments so that the additional args supplied on the message
-	// are properly parsed
-	var cmdArgs []string
-	cmdArgs = append(cmdArgs, h.CommandPath)
-	//cmdArgs = append(cmdArgs, "-loglevel", "debug")
-	cmdArgs = append(cmdArgs, "-headers", fmt.Sprintf("Authorization: %s", asBearer(t)))
-	cmdArgs = append(cmdArgs, "-i", b.Attachment.Content.SourceUri)
-	if trimmedArgs := strings.TrimSpace(b.Attachment.Content.Args); len(trimmedArgs) > 0 {
-		for _, addlArg := range strings.Split(trimmedArgs, " ") {
-			cmdArgs = append(cmdArgs, addlArg)
-		}
-	}
-	cmdArgs = append(cmdArgs, "-f", outputFormat)
-	cmdArgs = append(cmdArgs, "-")
-	cmd := &exec.Cmd{
-		Path: "/usr/local/bin/ffmpeg",
-		Args: cmdArgs,
-	}
-
 	// Compose a PUT request to Drupal, and stream the output of FFmpeg as the PUT request body
 
 	// GET the original image from Drupal
 	// Stream the original image into FFmpeg
 	// PUT the output of convert (i.e. the derivative) to Drupal
 	var (
+		cmd          *exec.Cmd
 		ffmpegStdout io.ReadCloser
 		err          error
 	)
+
+	if cmd, err = h.CommandBuilder.Build(h.CommandPath, t, b); err != nil {
+		return ctx, err
+	}
 
 	// open ffmpeg stdout
 	if ffmpegStdout, err = cmd.StdoutPipe(); err != nil {
@@ -582,6 +530,8 @@ func (h *FFMpegHandler) Configure(c config.Configuration) error {
 	}
 
 	h.Drupal = drupal.HttpImpl{HttpClient: drupal.DefaultClient}
+
+	h.CommandBuilder = cmd.FFMpeg{AcceptedFormatsMap: h.AcceptedFormatsMap}
 
 	return nil
 }
