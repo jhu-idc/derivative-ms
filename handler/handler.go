@@ -66,6 +66,8 @@ func (h *TesseractHandler) Handle(ctx context.Context, t *jwt.Token, b *api.Mess
 		tStdout io.ReadCloser
 
 		err error
+
+		logger = newLogger("TesseractHandler", ctx.Value(api.MsgId))
 	)
 
 	var cmdArgs []string
@@ -89,7 +91,7 @@ func (h *TesseractHandler) Handle(ctx context.Context, t *jwt.Token, b *api.Mess
 		return ctx, err
 	} else {
 		contentType := http.DetectContentType(sniff)
-		log.Printf("Sniffed media type: %s", contentType)
+		logger.Printf("handler: sniffed media type: %s", contentType)
 		if strings.HasPrefix(contentType, "application/pdf") {
 			// then pdf2text handler should handle this
 			return ctx, nil
@@ -112,7 +114,7 @@ func (h *TesseractHandler) Handle(ctx context.Context, t *jwt.Token, b *api.Mess
 	stdErr, _ := cmd.StderrPipe()
 	go func() {
 		f, _ := ioutil.TempFile("/tmp", "tesseract-")
-		log.Printf("Sending debug output to '%s'", f.Name())
+		logger.Printf("handler: ending debug output to '%s'", f.Name())
 		io.Copy(f, stdErr)
 	}()
 
@@ -121,14 +123,14 @@ func (h *TesseractHandler) Handle(ctx context.Context, t *jwt.Token, b *api.Mess
 		defer func() {
 			tStdin.Close()
 			if ioErr != nil {
-				log.Printf("hander: error copying stream from '%s' to stdin of '%s': %s",
+				logger.Printf("handler: error copying stream from '%s' to stdin of '%s': %s",
 					b.Attachment.Content.SourceUri, h.CommandPath, ioErr)
 			}
 		}()
 		_, ioErr = io.Copy(tStdin, sourceStream)
 	}()
 
-	log.Printf("Running '%s'", cmd.String())
+	logger.Printf("handler: running '%s'", cmd.String())
 	if err = cmd.Start(); err != nil {
 		return ctx, err
 	}
@@ -177,6 +179,8 @@ func (h *Pdf2TextHandler) Handle(ctx context.Context, t *jwt.Token, b *api.Messa
 		tStdout io.ReadCloser
 
 		err error
+
+		logger = newLogger("Pdf2TextHandler", ctx.Value(api.MsgId))
 	)
 
 	var cmdArgs []string
@@ -200,7 +204,7 @@ func (h *Pdf2TextHandler) Handle(ctx context.Context, t *jwt.Token, b *api.Messa
 		return ctx, err
 	} else {
 		contentType := http.DetectContentType(sniff)
-		log.Printf("Sniffed media type: %s", contentType)
+		logger.Printf("handler: sniffed media type: %s", contentType)
 		if !strings.HasPrefix(contentType, "application/pdf") {
 			// then tesseract handler should handle this
 			return ctx, nil
@@ -220,7 +224,7 @@ func (h *Pdf2TextHandler) Handle(ctx context.Context, t *jwt.Token, b *api.Messa
 		defer func() {
 			tStdin.Close()
 			if ioErr != nil {
-				log.Printf("hander: error copying stream from '%s' to stdin of '%s': %s",
+				logger.Printf("handler: error copying stream from '%s' to stdin of '%s': %s",
 					b.Attachment.Content.SourceUri, h.CommandPath, ioErr)
 			}
 		}()
@@ -265,21 +269,21 @@ func (h *ImageMagickHandler) Handle(ctx context.Context, t *jwt.Token, b *api.Me
 	if ctx.Value(api.MsgDestination).(string) != config.HoudiniDestination {
 		return ctx, nil
 	}
-
 	mid := ctx.Value(api.MsgId)
+	logger := newLogger("ImageMagickHandler", mid)
 
 	// Remove any tmp files left behind due to a crash or unclean shutdown of Imagemagick
 	defer func() {
 		entries, err := os.ReadDir(os.TempDir())
 		if err != nil {
-			log.Printf("[%s] [%s] handle: unable to clean up Imagemagick files '%s'", "ImageMagickHandler", mid, err)
+			logger.Printf("handler: unable to clean up Imagemagick files '%s'", err)
 			return
 		}
 
 		for _, entry := range entries {
 			if strings.HasPrefix(entry.Name(), "magick-") {
 				info, _ := entry.Info()
-				log.Printf("[%s] [%s] handler: cleaning up Imagemagick temporary file '%s': %v", "ImageMagickHandler", mid, entry.Name(), info)
+				logger.Printf("handler: cleaning up Imagemagick temporary file '%s': %v", entry.Name(), info)
 			}
 		}
 	}()
@@ -353,8 +357,8 @@ func (h *ImageMagickHandler) Handle(ctx context.Context, t *jwt.Token, b *api.Me
 		defer func() {
 			imgStdin.Close()
 			if ioErr != nil {
-				log.Printf("[%s] [%s] hander: error copying stream from '%s' to stdin of '%s': %s",
-					"ImageMagickHandler", mid, b.Attachment.Content.SourceUri, h.CommandPath, ioErr)
+				logger.Printf("handler: error copying stream from '%s' to stdin of '%s': %s",
+					b.Attachment.Content.SourceUri, h.CommandPath, ioErr)
 			}
 		}()
 		_, ioErr = io.Copy(imgStdin, sourceStream)
@@ -365,9 +369,9 @@ func (h *ImageMagickHandler) Handle(ctx context.Context, t *jwt.Token, b *api.Me
 		if err != nil {
 			b := &bytes.Buffer{}
 			if _, err := io.Copy(b, imgStderr); err != nil {
-				log.Printf("[%s] [%s] handler: there was an error executing ImageMagick, but the stderr could not be captured: '%s'", "ImageMagickHandler", mid, err)
+				logger.Printf("handler: there was an error executing ImageMagick, but the stderr could not be captured: '%s'", err)
 			} else {
-				log.Printf("[%s] [%s] handler: there was an error executing ImageMagick, stderr follows:\n%s", "ImageMagickHandler", mid, b)
+				logger.Printf("handler: there was an error executing ImageMagick, stderr follows:\n%s", b)
 			}
 		}
 
@@ -375,7 +379,7 @@ func (h *ImageMagickHandler) Handle(ctx context.Context, t *jwt.Token, b *api.Me
 	}()
 
 	// start imagemagick convert
-	log.Printf("[%s] [%s] hander: executing %+v\n", "ImageMagickHandler", mid, cmd)
+	logger.Printf("handler: executing %+v\n", cmd)
 	if err := cmd.Start(); err != nil {
 		return ctx, err
 	}
@@ -436,6 +440,8 @@ func (h *FFMpegHandler) Handle(ctx context.Context, t *jwt.Token, b *api.Message
 	if ctx.Value(api.MsgDestination).(string) != config.HomarusDestination {
 		return ctx, nil
 	}
+
+	logger := newLogger("FFMpegHandler", ctx.Value(api.MsgId))
 
 	// Set a default mime type (parity with PHP controller)
 	if b.Attachment.Content.MimeType == "" {
@@ -504,7 +510,7 @@ func (h *FFMpegHandler) Handle(ctx context.Context, t *jwt.Token, b *api.Message
 	//}()
 
 	// start ffmpeg
-	log.Printf("Executing %+v\n", cmd)
+	logger.Printf("handler: executing %+v\n", cmd)
 	if err := cmd.Start(); err != nil {
 		return ctx, err
 	}
@@ -667,22 +673,23 @@ func (h *JWTLoggingHandler) Configure(c config.Configuration) error {
 func (h *JWTLoggingHandler) Handle(ctx context.Context, t *jwt.Token, b *api.MessageBody) (context.Context, error) {
 	// TODO: handle a nil token, congruent with handler configuration
 	var err error
-	mid := ctx.Value(api.MsgId)
 	privateKey := []byte(env.GetOrDefault(config.VarDrupalJwtPrivateKey, ""))
 	publicKey := []byte(env.GetOrDefault(config.VarDrupalJwtPublicKey, ""))
+	logger := newLogger("JWTLoggingHandler", ctx.Value(api.MsgId))
+
 
 	err = verify(t, privateKey, publicKey)
 
 	if err != nil {
-		log.Printf("[%s] [%s] handler: JWT could not be verified: %s", "JWTLoggingHandler", mid, err)
+		logger.Printf("handler: JWT could not be verified: %s", "JWTLoggingHandler", err)
 	} else {
-		log.Printf("[%s] [%s] handler: JWT verified", "JWTLoggingHandler", mid)
+		logger.Printf("handler: JWT verified")
 	}
 
 	// Decode all claims and log them
 	claims := make(map[string]interface{})
 	if err := t.DecodeClaims(&claims); err != nil {
-		log.Printf("[%s] [%s] handler: error decoding JWT claims: %s", "JWTLoggingHandler", mid, err)
+		logger.Printf("handler: error decoding JWT claims: %s", err)
 	}
 
 	expired := time.Time{}
@@ -703,9 +710,9 @@ func (h *JWTLoggingHandler) Handle(ctx context.Context, t *jwt.Token, b *api.Mes
 		}
 	}
 
-	log.Printf("[%s] [%s] handler: %s", "JWTLoggingHandler", mid, builder.String())
+	logger.Printf("handler: %s", builder.String())
 	if !expired.IsZero() {
-		log.Printf("[%s] [%s] handler: JWT expired at %s", "JWTLoggingHandler", mid, expired.Format(time.RFC3339))
+		logger.Printf("handler: JWT expired at %s", expired.Format(time.RFC3339))
 	}
 
 	return ctx, nil
@@ -713,7 +720,6 @@ func (h *JWTLoggingHandler) Handle(ctx context.Context, t *jwt.Token, b *api.Mes
 
 func (h *JWTHandler) Handle(ctx context.Context, t *jwt.Token, m *api.MessageBody) (context.Context, error) {
 	// TODO: handle a nil token, congruent with handler configuration
-	mId := ctx.Value(api.MsgId)
 
 	// FIXME: we don't need a public key for RS256, and we may not need a "private" key for other algorithms.
 	//  Figure out appropriate variable names, but we shouldn't panic until we know what keys are needed from the
@@ -721,26 +727,27 @@ func (h *JWTHandler) Handle(ctx context.Context, t *jwt.Token, m *api.MessageBod
 	var publicKey = []byte(env.GetOrDefault(config.VarDrupalJwtPublicKey, ""))
 	var privateKey = []byte(env.GetOrDefault(config.VarDrupalJwtPrivateKey, ""))
 	var err error
+	logger := newLogger("JWTHandler", ctx.Value(api.MsgId))
 
 	err = verify(t, privateKey, publicKey)
 
 	if err != nil {
 		return ctx, fmt.Errorf("handler: unable to verify JWT for message-id %s: %w",
-			mId, err)
+			ctx.Value(api.MsgId), err)
 	}
 
 	// Decode registered claims and check expiration
 	rClaims := jwt.RegisteredClaims{}
 
 	if err := t.DecodeClaims(&jwt.RegisteredClaims{}); err != nil {
-		return ctx, fmt.Errorf("handler: error decoding JWT claims for message-id '%s': %w", mId, err)
+		return ctx, fmt.Errorf("handler: error decoding JWT claims for message-id '%s': %w", ctx.Value(api.MsgId), err)
 	} else if !rClaims.IsValidExpiresAt(time.Now()) {
-		return ctx, fmt.Errorf("handler: JWT for message-id %s is expired on %s", mId, rClaims.ExpiresAt.Format(time.RFC3339))
+		return ctx, fmt.Errorf("handler: JWT for message-id %s is expired on %s", ctx.Value(api.MsgId), rClaims.ExpiresAt.Format(time.RFC3339))
 	}
 
 	ctx = context.WithValue(ctx, api.MsgJwt, t)
 
-	log.Printf("[%s] [%s] handler: verified JWT for message %s", "JWTHandler", mId, mId)
+	logger.Printf("handle: verified JWT for message %s", ctx.Value(api.MsgId))
 	return ctx, nil
 }
 
@@ -834,7 +841,7 @@ func (h *JWTHandler) Configure(c config.Configuration) error {
 	h.Configuration = c
 
 	if jwtConfig, err = h.UnmarshalHandlerConfig(); err != nil {
-		return fmt.Errorf("handler: unable to configure JWTHandler: %w", err)
+		return fmt.Errorf("handle: unable to configure JWTHandler: %w", err)
 	}
 
 	if requireTokens, err := config.BoolValue(jwtConfig, "requireTokens"); err != nil {
@@ -850,4 +857,12 @@ func (h *JWTHandler) Configure(c config.Configuration) error {
 	}
 
 	return nil
+}
+
+func newLogger(handlerName string, messageId interface{}) *log.Logger {
+	return newLoggerWithPrefix(fmt.Sprintf("[%s] [%s] ", handlerName, messageId))
+}
+
+func newLoggerWithPrefix(prefix string) *log.Logger {
+	return log.New(log.Writer(), prefix, log.Flags())
 }
