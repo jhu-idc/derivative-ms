@@ -1,8 +1,11 @@
 package handler
 
 import (
+	"context"
 	"derivative-ms/api"
+	"derivative-ms/cmd"
 	"derivative-ms/config"
+	"github.com/cristalhq/jwt/v4"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"io/fs"
@@ -45,68 +48,87 @@ type suite struct {
 
 type imSuite struct {
 	suite
-	handlerUnderTest *ImageMagickHandler
+	handler *ImageMagickHandler
 }
 
 type ffmpegSuite struct {
 	suite
-	handlerUnderTest *FFMpegHandler
+	handler *FFMpegHandler
+}
+
+type mutableHandler interface {
+	api.Handler
+	setCommandBuilder(c cmd.Builder)
+	setCommandPath(cmdPath string)
+}
+
+func (s imSuite) setCommandBuilder(c cmd.Builder) {
+	s.handler.CommandBuilder = c
+}
+
+func (s imSuite) setCommandPath(cmd string) {
+	s.handler.CommandPath = cmd
+}
+
+func (s imSuite) Handle(ctx context.Context, t *jwt.Token, b *api.MessageBody) (context.Context, error) {
+	return s.handler.Handle(ctx, t, b)
+}
+
+func (s ffmpegSuite) setCommandBuilder(c cmd.Builder) {
+	s.handler.CommandBuilder = c
+}
+
+func (s ffmpegSuite) setCommandPath(cmd string) {
+	s.handler.CommandPath = cmd
+}
+
+func (s ffmpegSuite) Handle(ctx context.Context, t *jwt.Token, b *api.MessageBody) (context.Context, error) {
+	return s.handler.Handle(ctx, t, b)
 }
 
 func Test_ImageMagick_Suite(t *testing.T) {
-	suite, drupalClient := newImageMagickSuite()
-	require.Nil(t, suite.handlerUnderTest.configure(suite.configuration, true))
-
-	t.Run("CommandNotFound", func(t *testing.T) {
-		suite.handlerUnderTest.CommandPath = "moo"
-		_, err := suite.handlerUnderTest.Handle(suite.ctx.ctx, nil, &api.MessageBody{})
-		assert.ErrorIs(t, err, fs.ErrNotExist)
-	})
+	suite, _ := newImageMagickSuite()
+	require.Nil(t, suite.handler.configure(suite.configuration, true))
+	t.Run("CommandNotFound", testCommandNotFound(mutableHandler(suite), &suite.suite))
 
 	// Reset suite state between tests
-	suite, drupalClient = newImageMagickSuite()
-	require.Nil(t, suite.handlerUnderTest.configure(suite.configuration, true))
-
-	t.Run("ExecOk", func(t *testing.T) {
-		echoPath, err := exec.LookPath("echo")
-		require.Nil(t, err)
-		suite.handlerUnderTest.CommandBuilder = &mockCmd{cmd: &exec.Cmd{
-			Path: echoPath,
-			Args: []string{echoPath, "hello world"},
-		}}
-
-		_, err = suite.handlerUnderTest.Handle(suite.ctx.ctx, nil, &api.MessageBody{})
-		assert.Nil(t, err)
-		assert.Equal(t, []byte("hello world\n"), drupalClient.put.body)
-	})
+	suite, _ = newImageMagickSuite()
+	require.Nil(t, suite.handler.configure(suite.configuration, true))
+	t.Run("ExecOk", testExecOk(mutableHandler(suite), &suite.suite))
 }
 
 func Test_FFMpeg_Suite(t *testing.T) {
-	suite, drupalClient := newFFMpegSuite()
-	require.Nil(t, suite.handlerUnderTest.configure(suite.configuration, true))
-
-	t.Run("CommandNotFound", func(t *testing.T) {
-		suite.handlerUnderTest.CommandPath = "moo"
-		_, err := suite.handlerUnderTest.Handle(suite.ctx.ctx, nil, &api.MessageBody{})
-		assert.ErrorIs(t, err, fs.ErrNotExist)
-	})
+	suite, _ := newFFMpegSuite()
+	require.Nil(t, suite.handler.configure(suite.configuration, true))
+	t.Run("CommandNotFound", testCommandNotFound(mutableHandler(suite), &suite.suite))
 
 	// Reset suite state between tests
-	suite, drupalClient = newFFMpegSuite()
-	require.Nil(t, suite.handlerUnderTest.configure(suite.configuration, true))
+	suite, _ = newFFMpegSuite()
+	require.Nil(t, suite.handler.configure(suite.configuration, true))
+	t.Run("ExecOk", testExecOk(mutableHandler(suite), &suite.suite))
+}
 
-	t.Run("ExecOk", func(t *testing.T) {
+func testExecOk(h mutableHandler, s *suite) func(*testing.T) {
+	return func(t *testing.T) {
 		echoPath, err := exec.LookPath("echo")
 		require.Nil(t, err)
-		suite.handlerUnderTest.CommandBuilder = &mockCmd{cmd: &exec.Cmd{
+		h.setCommandBuilder(&mockCmd{cmd: &exec.Cmd{
 			Path: echoPath,
 			Args: []string{echoPath, "hello world"},
-		}}
+		}})
 
-		_, err = suite.handlerUnderTest.Handle(suite.ctx.ctx, nil, &api.MessageBody{})
+		_, err = h.Handle(s.ctx.ctx, nil, &api.MessageBody{})
 		assert.Nil(t, err)
-		assert.Equal(t, []byte("hello world\n"), drupalClient.put.body)
-	})
+		assert.Equal(t, []byte("hello world\n"), s.drupalClient.put.body)
+	}
+}
+
+func testCommandNotFound(h mutableHandler, s *suite) func(t *testing.T) {
+	return func(t *testing.T) {
+		h.setCommandPath("moo")
+		_, err := h.Handle(s.ctx.ctx, nil, &api.MessageBody{})
+		assert.ErrorIs(t, err, fs.ErrNotExist)
+	}
 }
 
 func newImageMagickSuite() (*imSuite, *mockDrupal) {
@@ -128,7 +150,7 @@ func newImageMagickSuite() (*imSuite, *mockDrupal) {
 
 	return &imSuite{
 		suite: *s,
-		handlerUnderTest: &ImageMagickHandler{
+		handler: &ImageMagickHandler{
 			Configuration: c,
 			Drupal:        d,
 		},
@@ -153,7 +175,7 @@ func newFFMpegSuite() (*ffmpegSuite, *mockDrupal) {
 	s, d := newSuite(newContext("moo-msg-id", destination, messageBody), c)
 	return &ffmpegSuite{
 		suite: *s,
-		handlerUnderTest: &FFMpegHandler{
+		handler: &FFMpegHandler{
 			Configuration: c,
 			Drupal:        d,
 		},
