@@ -8,6 +8,8 @@ import (
 	"crypto/x509"
 	"derivative-ms/api"
 	"derivative-ms/config"
+	"derivative-ms/drupal"
+	"derivative-ms/drupal/request"
 	"derivative-ms/env"
 	"encoding/pem"
 	"fmt"
@@ -22,6 +24,8 @@ import (
 	"time"
 )
 
+var httpClient = &http.Client{}
+
 type CompositeHandler struct {
 	Handlers []api.Handler
 }
@@ -29,6 +33,7 @@ type CompositeHandler struct {
 // TODO use plugin mechanism for handlers?
 type ImageMagickHandler struct {
 	config.Configuration
+	Drupal           drupal.Client
 	DefaultMediaType string
 	AcceptedFormats  map[string]struct{}
 	CommandPath      string
@@ -36,17 +41,20 @@ type ImageMagickHandler struct {
 
 type TesseractHandler struct {
 	config.Configuration
+	Drupal      drupal.Client
 	CommandPath string
 }
 
 type Pdf2TextHandler struct {
 	config.Configuration
+	Drupal          drupal.Client
 	CommandPath     string
 	AcceptedFormats map[string]struct{}
 }
 
 type FFMpegHandler struct {
 	config.Configuration
+	Drupal             drupal.Client
 	DefaultMediaType   string
 	AcceptedFormatsMap map[string]string
 	CommandPath        string
@@ -68,6 +76,8 @@ func (h *TesseractHandler) Handle(ctx context.Context, t *jwt.Token, b *api.Mess
 		err error
 
 		logger = newLogger("TesseractHandler", ctx.Value(api.MsgId))
+
+		reqCtx = request.New().WithToken(t)
 	)
 
 	var cmdArgs []string
@@ -84,7 +94,7 @@ func (h *TesseractHandler) Handle(ctx context.Context, t *jwt.Token, b *api.Mess
 	}
 
 	// Buffer the source stream's first 512 bytes and sniff the content
-	sourceStream, err = getResourceStream(b.Attachment.Content.SourceUri, t, nil)
+	sourceStream, err = h.Drupal.Get(*reqCtx, b.Attachment.Content.SourceUri)
 	bufSource := bufio.NewReaderSize(sourceStream, 512)
 
 	if sniff, err := bufSource.Peek(512); err != nil {
@@ -135,10 +145,9 @@ func (h *TesseractHandler) Handle(ctx context.Context, t *jwt.Token, b *api.Mess
 		return ctx, err
 	}
 
-	_, err = putResourceStream(b.Attachment.Content.DestinationUri, t, tStdout, map[string]string{
-		"Content-Type":     "text/plain",
-		"Content-Location": b.Attachment.Content.UploadUri,
-	})
+	reqCtx.WithHeader("Content-Type", "text/plain").
+		WithHeader("Content-Location", b.Attachment.Content.UploadUri)
+	_, err = h.Drupal.Put(*reqCtx, b.Attachment.Content.DestinationUri, tStdout)
 
 	if err != nil {
 		return ctx, err
@@ -162,6 +171,8 @@ func (h *TesseractHandler) Configure(c config.Configuration) error {
 		return fmt.Errorf("handler: unable to configure TesseractHandler '%s', parameter '%s': %w", h.Key, "commandPath", err)
 	}
 
+	h.Drupal = drupal.HttpImpl{HttpClient: drupal.DefaultClient}
+
 	return nil
 }
 
@@ -181,6 +192,8 @@ func (h *Pdf2TextHandler) Handle(ctx context.Context, t *jwt.Token, b *api.Messa
 		err error
 
 		logger = newLogger("Pdf2TextHandler", ctx.Value(api.MsgId))
+
+		reqCtx = request.New().WithToken(t)
 	)
 
 	var cmdArgs []string
@@ -197,7 +210,7 @@ func (h *Pdf2TextHandler) Handle(ctx context.Context, t *jwt.Token, b *api.Messa
 	}
 
 	// Buffer the source stream's first 512 bytes and sniff the content
-	sourceStream, err = getResourceStream(b.Attachment.Content.SourceUri, t, nil)
+	sourceStream, err = h.Drupal.Get(*reqCtx, b.Attachment.Content.SourceUri)
 	bufSource := bufio.NewReaderSize(sourceStream, 512)
 
 	if sniff, err := bufSource.Peek(512); err != nil {
@@ -235,10 +248,9 @@ func (h *Pdf2TextHandler) Handle(ctx context.Context, t *jwt.Token, b *api.Messa
 		return ctx, err
 	}
 
-	_, err = putResourceStream(b.Attachment.Content.DestinationUri, t, tStdout, map[string]string{
-		"Content-Type":     "text/plain",
-		"Content-Location": b.Attachment.Content.UploadUri,
-	})
+	reqCtx.WithHeader("Content-Type", "text/plain").
+		WithHeader("Content-Location", b.Attachment.Content.UploadUri)
+	_, err = h.Drupal.Put(*reqCtx, b.Attachment.Content.DestinationUri, tStdout)
 
 	if err != nil {
 		return ctx, err
@@ -261,6 +273,8 @@ func (h *Pdf2TextHandler) Configure(c config.Configuration) error {
 	if h.CommandPath, err = config.StringValue(handlerConfig, "commandPath"); err != nil {
 		return fmt.Errorf("handler: unable to configure Pdf2TextHandler '%s', parameter '%s': %w", h.Key, "commandPath", err)
 	}
+
+	h.Drupal = drupal.HttpImpl{HttpClient: drupal.DefaultClient}
 
 	return nil
 }
@@ -330,11 +344,13 @@ func (h *ImageMagickHandler) Handle(ctx context.Context, t *jwt.Token, b *api.Me
 		// imagemagick stderr
 		imgStderr io.ReadCloser
 
+		reqCtx = request.New().WithToken(t)
+
 		err error
 	)
 
 	// GET original image from Drupal
-	sourceStream, err = getResourceStream(b.Attachment.Content.SourceUri, t, nil)
+	sourceStream, err = h.Drupal.Get(*reqCtx, b.Attachment.Content.SourceUri)
 	defer sourceStream.Close()
 	if err != nil {
 		return ctx, err
@@ -385,10 +401,10 @@ func (h *ImageMagickHandler) Handle(ctx context.Context, t *jwt.Token, b *api.Me
 	}
 
 	// PUT the derivative to Drupal, using stdout from imagemagick
-	_, err = putResourceStream(b.Attachment.Content.DestinationUri, t, imgStdout, map[string]string{
-		"Content-Location": b.Attachment.Content.UploadUri,
-		"Content-Type":     b.Attachment.Content.MimeType,
-	})
+	reqCtx.WithHeader("Content-Location", b.Attachment.Content.UploadUri).
+		WithHeader("Content-Type", b.Attachment.Content.MimeType)
+
+	_, err = h.Drupal.Put(*reqCtx, b.Attachment.Content.DestinationUri, imgStdout)
 
 	if err != nil {
 		return ctx, err
@@ -427,6 +443,8 @@ func (h *ImageMagickHandler) Configure(c config.Configuration) error {
 	for _, f := range formats {
 		h.AcceptedFormats[f] = struct{}{}
 	}
+
+	h.Drupal = drupal.HttpImpl{HttpClient: drupal.DefaultClient}
 
 	return nil
 }
@@ -516,10 +534,10 @@ func (h *FFMpegHandler) Handle(ctx context.Context, t *jwt.Token, b *api.Message
 	}
 
 	// PUT the derivative to Drupal, using stdout from ffmpeg
-	_, err = putResourceStream(b.Attachment.Content.DestinationUri, t, ffmpegStdout, map[string]string{
-		"Content-Location": b.Attachment.Content.UploadUri,
-		"Content-Type":     b.Attachment.Content.MimeType,
-	})
+	reqCtx := request.New().WithToken(t).
+		WithHeader("Content-Location", b.Attachment.Content.UploadUri).
+		WithHeader("Content-Type", b.Attachment.Content.MimeType)
+	_, err = h.Drupal.Put(*reqCtx, b.Attachment.Content.DestinationUri, ffmpegStdout)
 
 	if err != nil {
 		return ctx, err
@@ -559,6 +577,8 @@ func (h *FFMpegHandler) Configure(c config.Configuration) error {
 		h.AcceptedFormatsMap[k] = v.(string)
 	}
 
+	h.Drupal = drupal.HttpImpl{HttpClient: drupal.DefaultClient}
+
 	return nil
 }
 
@@ -572,87 +592,6 @@ func (h CompositeHandler) Handle(ctx context.Context, t *jwt.Token, b *api.Messa
 	}
 
 	return ctx, err
-}
-
-func getResourceStream(uri string, authToken *jwt.Token, headers map[string]string) (io.ReadCloser, error) {
-	var (
-		statusCode   int
-		statusMsg    string
-		responseBody io.ReadCloser
-		err          error
-	)
-
-	if responseBody, statusCode, statusMsg, err = doRequest(http.MethodGet, uri, authToken, nil, headers); err != nil {
-		return nil, err
-	}
-
-	if statusCode < 200 || statusCode >= 300 {
-		defer func() {
-			io.Copy(ioutil.Discard, responseBody)
-			responseBody.Close()
-		}()
-		return responseBody, fmt.Errorf("handler: error performing GET %s: status code '%d', message: '%s'",
-			uri, statusCode, statusMsg)
-	}
-
-	return responseBody, nil
-}
-
-func putResourceStream(uri string, authToken *jwt.Token, body io.ReadCloser, headers map[string]string) (int, error) {
-	var (
-		statusCode   int
-		statusMsg    string
-		responseBody io.ReadCloser
-		err          error
-	)
-
-	if responseBody, statusCode, statusMsg, err = doRequest(http.MethodPut, uri, authToken, body, headers); err != nil {
-		return statusCode, err
-	} else {
-		defer func() {
-			io.Copy(ioutil.Discard, responseBody)
-			responseBody.Close()
-		}()
-	}
-
-	if statusCode < 200 || statusCode >= 300 {
-		return statusCode, fmt.Errorf("handler: error performing PUT %s: status code '%d', message: '%s'",
-			uri, statusCode, statusMsg)
-	}
-
-	return statusCode, nil
-}
-
-func doRequest(method, uri string, authToken *jwt.Token, body io.ReadCloser, headers map[string]string) (responseBody io.ReadCloser, statusCode int, statusMessage string, err error) {
-	var (
-		client = http.Client{}
-
-		req *http.Request
-		res *http.Response
-	)
-
-	req, err = http.NewRequest(method, uri, body)
-	if err != nil {
-		return nil, -1, "", err
-	} else {
-		req.Close = true
-		if authToken != nil {
-			req.Header.Set("Authorization", asBearer(authToken))
-		}
-		for header, value := range headers {
-			req.Header.Set(header, value)
-		}
-	}
-
-	if res, err = client.Do(req); err != nil {
-		return nil, -1, "", err
-	}
-
-	return res.Body, res.StatusCode, res.Status, nil
-}
-
-func asBearer(token *jwt.Token) string {
-	return fmt.Sprintf("Bearer %s", token)
 }
 
 type JWTHandler struct {
@@ -676,7 +615,6 @@ func (h *JWTLoggingHandler) Handle(ctx context.Context, t *jwt.Token, b *api.Mes
 	privateKey := []byte(env.GetOrDefault(config.VarDrupalJwtPrivateKey, ""))
 	publicKey := []byte(env.GetOrDefault(config.VarDrupalJwtPublicKey, ""))
 	logger := newLogger("JWTLoggingHandler", ctx.Value(api.MsgId))
-
 
 	err = verify(t, privateKey, publicKey)
 
@@ -865,4 +803,8 @@ func newLogger(handlerName string, messageId interface{}) *log.Logger {
 
 func newLoggerWithPrefix(prefix string) *log.Logger {
 	return log.New(log.Writer(), prefix, log.Flags())
+}
+
+func asBearer(token *jwt.Token) string {
+	return fmt.Sprintf("Bearer %s", token)
 }
