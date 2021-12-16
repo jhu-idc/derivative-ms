@@ -415,6 +415,10 @@ func (h *ImageMagickHandler) Handle(ctx context.Context, t *jwt.Token, b *api.Me
 }
 
 func (h *ImageMagickHandler) Configure(c config.Configuration) error {
+	return h.configure(c, false)
+}
+
+func (h *ImageMagickHandler) configure(c config.Configuration, ignoreErr bool) error {
 	var (
 		convertConfig *map[string]interface{}
 		formats       []string
@@ -422,19 +426,19 @@ func (h *ImageMagickHandler) Configure(c config.Configuration) error {
 	)
 	h.Configuration = c
 
-	if convertConfig, err = h.UnmarshalHandlerConfig(); err != nil {
+	if convertConfig, err = h.UnmarshalHandlerConfig(); err != nil && !ignoreErr {
 		return fmt.Errorf("handler: unable to configure ImageMagickHandler: %w", err)
 	}
 
-	if h.CommandPath, err = config.StringValue(convertConfig, "commandPath"); err != nil {
+	if h.CommandPath, err = config.StringValue(convertConfig, "commandPath"); err != nil && !ignoreErr {
 		return fmt.Errorf("handler: unable to configure ImageMagickHandler '%s', parameter '%s': %w", h.Key, "commandPath", err)
 	}
 
-	if h.DefaultMediaType, err = config.StringValue(convertConfig, "defaultMediaType"); err != nil {
+	if h.DefaultMediaType, err = config.StringValue(convertConfig, "defaultMediaType"); err != nil && !ignoreErr {
 		return fmt.Errorf("handler: unable to configure ImageMagickHandler '%s', parameter '%s': %w", h.Key, "defaultMediaType", err)
 	}
 
-	if formats, err = config.SliceStringValue(convertConfig, "acceptedFormats"); err != nil {
+	if formats, err = config.SliceStringValue(convertConfig, "acceptedFormats"); err != nil && !ignoreErr {
 		return fmt.Errorf("handler: unable to configure ImageMagickHandler '%s', parameter '%s': %w", h.Key, "acceptedFormats", err)
 	}
 
@@ -619,7 +623,7 @@ func (h *JWTLoggingHandler) Handle(ctx context.Context, t *jwt.Token, b *api.Mes
 	err = verify(t, privateKey, publicKey)
 
 	if err != nil {
-		logger.Printf("handler: JWT could not be verified: %s", "JWTLoggingHandler", err)
+		logger.Printf("handler: JWT could not be verified: %s", err)
 	} else {
 		logger.Printf("handler: JWT verified")
 	}
