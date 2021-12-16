@@ -51,26 +51,18 @@ Configuration is specified (in order of **decreasing** precedence):
 * by the `DERIVATIVE_HANDLER_CONFIG` environment variable
 * default embedded configuration  
 
-The embedded default configuration is below:
+The embedded default configuration is below (the current version is found [here](config/handlers.json):
 ```json
 {
   "jwt-logger": {
     "handler-type": "JWTLoggingHandler",
     "order": 10
   },
-  "stomp-logger": {
-    "handler-type": "StompLoggerHandler",
-    "order": 20
-  },
   "jwt": {
     "handler-type": "JWTHandler",
     "order": 30,
     "requireTokens": true,
     "verifyTokens": true
-  },
-  "body": {
-    "handler-type": "MessageBody",
-    "order": 40
   },
   "convert": {
     "handler-type": "ImageMagickHandler",
@@ -119,27 +111,11 @@ Handlers may be customized by creating a configuration file based on the embedde
 
 ## Handlers
 
-Handlers are responsible for performing some action based on a received message.  For example, the `ImageMagickHandler` produces a derivative image and PUTs it back to Drupal, while the `JWTLoggingHandler` emits the contents of the STOMP message's `Authorization` header to `stderr`.  
+Handlers are responsible for performing some action based on a received message.  For example, the `ImageMagickHandler` produces a derivative image and PUTs it back to Drupal, while the `JWTHandler` verifies tokens issued by Drupal.
 
-Handlers are invoked in a chain according to the `order` specified in the configuration.  This is important for two reasons: 1) To ensure secure processing, the handler which verifies JWT tokens ought to run before another handler that generates a derivative, and 2) state produced by one handler may be passed to the remaining handlers, so there may be a dependency between Handler A and Handler B if Handler B relies on state added by Handler A.
+Handlers are invoked in a chain according to the `order` specified in the configuration.  This is important for two reasons: 1) To ensure secure processing, the handler which verifies JWT tokens ought to run before another handler that generates a derivative, and 2) state produced by one handler may be passed to the remaining handlers, so there may be a dependency between Handler A and Handler B if Handler B relies on state added by Handler A.  The chain may be terminated by any Handler that returns a non-nil error.  Otherwise, handlers should generally perform their actions and return a `nil` error, allowing the remaining handlers in the chain to execute.  If a Handler returns a non-nil error, the chain terminates, and the message being processed by the handler chain is negatively acknowledged.
 
-The chain may be terminated by any Handler that returns a non-nil error.  Otherwise, handlers should generally perform their actions and return a `nil` error, allowing the remaining handlers in the chain to execute.  If a Handler returns a non-nil error, the chain terminates, and the message being processed by the handler chain is negatively acknowledged.
-
-There are two types of handlers:
-1) stomp.Message handler: these handlers execute before any MessageBody handler.  They receive an instance of the STOMP message, which provides access to message headers and behaviors (e.g. acknowledging the message).  These handlers respond to concerns outside the "business" realm of derivative generation.  For example, verifying JWT tokens.
-```go
-Handle(ctx context.Context, m *stomp.Message) (context.Context, error)
-```
-2) listener.MessageBody handler: these handlers execute *after* any stomp.Message handler.  They receive an instance of the body of the message, and are concerned with the "business" realm: they execute logic to produce a derivative and PUT them back to Drupal.
-```go
-Handle(ctx context.Context, b *MessageBody) (context.Context, error)
-```
-
-Any handler may terminate the chain by returning a non-nil error, and _must_ return a Context.  A handler can return the provided Context, or return a new Context that wraps the provided Context.  The latter is used if the handler wishes to pass some state to handlers later in the chain.
-
-The rationale for two different types of handlers is that stomp.Message handlers expose behaviors and state related to the protocol.  If the wire protocol changes from STOMP to another protocol (e.g. OpenWire), you only have to reimplement the stomp.Message handlers.  Similarly, handlers that operate on just the message body don't need access to protocol semantics.  They're insulated from the protocol, and do not have responsibility for things like message acknowledgement. 
-
-Speaking of message acknowledgement: if the handlers execute without error, the message is acknowledged.  If a handler returns an error, the handler chain is terminated and the message is nacked.  The broker may attempt redelivery at some future time.
+If the handler chain executes without error, the message is acknowledged.  If any handler returns an error, the handler chain is terminated and the message is nacked.  The broker may attempt redelivery at some future time.
 
 ## Docker Image
 
