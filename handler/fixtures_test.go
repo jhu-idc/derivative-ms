@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"derivative-ms/api"
+	"derivative-ms/cmd"
+	"derivative-ms/config"
 	"derivative-ms/drupal/request"
 	"github.com/cristalhq/jwt/v4"
 	"io"
@@ -53,11 +55,11 @@ func (m *mockDrupal) Get(reqCtx request.Context, uri string) (retBody io.ReadClo
 	m.get.reqCtx = reqCtx
 	m.get.uri = uri
 
-	if m.get.retBody == nil {
+	retBody = m.get.retBody
+	retErr = m.get.retErr
+
+	if retBody == nil {
 		retBody = ioutil.NopCloser(&bytes.Buffer{})
-	}
-	if m.get.retErr != nil {
-		retErr = m.get.retErr
 	}
 
 	return
@@ -93,4 +95,87 @@ func newContext(messageId, queueDestination string, messageBody api.MessageBody)
 func (testContext *ctxStruct) withValue(key string, value interface{}) testContext {
 	testContext.ctx = context.WithValue(testContext.ctx, key, value)
 	return testContext
+}
+
+type suite struct {
+	// the context.Context provided to the Handler
+	ctx ctxStruct
+	// the configuration of the Handler
+	configuration config.Configuration
+	// a client that mocks GETs and PUTs to Drupal
+	drupalClient *mockDrupal
+}
+
+type imSuite struct {
+	suite
+	handler *ImageMagickHandler
+}
+
+type ffmpegSuite struct {
+	suite
+	handler *FFMpegHandler
+}
+
+type pdf2TextSuite struct {
+	suite
+	handler *Pdf2TextHandler
+}
+
+type tesseractSuite struct {
+	suite
+	handler *TesseractHandler
+}
+
+type mutableHandler interface {
+	api.Handler
+	setCommandBuilder(c cmd.Builder)
+	setCommandPath(cmdPath string)
+}
+
+func (s imSuite) setCommandBuilder(c cmd.Builder) {
+	s.handler.CommandBuilder = c
+}
+
+func (s imSuite) setCommandPath(cmd string) {
+	s.handler.CommandPath = cmd
+}
+
+func (s imSuite) Handle(ctx context.Context, t *jwt.Token, b *api.MessageBody) (context.Context, error) {
+	return s.handler.Handle(ctx, t, b)
+}
+
+func (s ffmpegSuite) setCommandBuilder(c cmd.Builder) {
+	s.handler.CommandBuilder = c
+}
+
+func (s ffmpegSuite) setCommandPath(cmd string) {
+	s.handler.CommandPath = cmd
+}
+
+func (s ffmpegSuite) Handle(ctx context.Context, t *jwt.Token, b *api.MessageBody) (context.Context, error) {
+	return s.handler.Handle(ctx, t, b)
+}
+
+func (s pdf2TextSuite) Handle(ctx context.Context, t *jwt.Token, b *api.MessageBody) (context.Context, error) {
+	return s.handler.Handle(ctx, t, b)
+}
+
+func (s pdf2TextSuite) setCommandBuilder(c cmd.Builder) {
+	s.handler.CommandBuilder = c
+}
+
+func (s pdf2TextSuite) setCommandPath(cmdPath string) {
+	s.handler.CommandPath = cmdPath
+}
+
+func (s tesseractSuite) Handle(ctx context.Context, t *jwt.Token, b *api.MessageBody) (context.Context, error) {
+	return s.handler.Handle(ctx, t, b)
+}
+
+func (s tesseractSuite) setCommandBuilder(c cmd.Builder) {
+	s.handler.CommandBuilder = c
+}
+
+func (s tesseractSuite) setCommandPath(cmdPath string) {
+	s.handler.CommandPath = cmdPath
 }

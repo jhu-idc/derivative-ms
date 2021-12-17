@@ -156,23 +156,31 @@ func (h *TesseractHandler) Handle(ctx context.Context, t *jwt.Token, b *api.Mess
 }
 
 func (h *TesseractHandler) Configure(c config.Configuration) error {
+	return h.configure(c, false)
+}
+
+func (h *TesseractHandler) configure(c config.Configuration, ignoreErr bool) error {
 	var (
 		handlerConfig *map[string]interface{}
 		err           error
 	)
 	h.Configuration = c
 
-	if handlerConfig, err = h.UnmarshalHandlerConfig(); err != nil {
+	if handlerConfig, err = h.UnmarshalHandlerConfig(); err != nil && !ignoreErr {
 		return fmt.Errorf("handler: unable to configure TesseractHandler: %w", err)
 	}
 
-	if h.CommandPath, err = config.StringValue(handlerConfig, "commandPath"); err != nil {
+	if h.CommandPath, err = config.StringValue(handlerConfig, "commandPath"); err != nil && !ignoreErr {
 		return fmt.Errorf("handler: unable to configure TesseractHandler '%s', parameter '%s': %w", h.Key, "commandPath", err)
 	}
 
-	h.Drupal = drupal.HttpImpl{HttpClient: drupal.DefaultClient}
+	if h.Drupal == nil {
+		h.Drupal = drupal.HttpImpl{HttpClient: drupal.DefaultClient}
+	}
 
-	h.CommandBuilder = &cmd.Tesseract{}
+	if h.CommandBuilder == nil {
+		h.CommandBuilder = &cmd.Tesseract{}
+	}
 
 	return nil
 }
@@ -255,27 +263,34 @@ func (h *Pdf2TextHandler) Handle(ctx context.Context, t *jwt.Token, b *api.Messa
 }
 
 func (h *Pdf2TextHandler) Configure(c config.Configuration) error {
+	return h.configure(c, false)
+}
+
+func (h *Pdf2TextHandler) configure(c config.Configuration, ignoreErr bool) error {
 	var (
 		handlerConfig *map[string]interface{}
 		err           error
 	)
 	h.Configuration = c
 
-	if handlerConfig, err = h.UnmarshalHandlerConfig(); err != nil {
+	if handlerConfig, err = h.UnmarshalHandlerConfig(); err != nil && !ignoreErr {
 		return fmt.Errorf("handler: unable to configure Pdf2TextHandler: %w", err)
 	}
 
-	if h.CommandPath, err = config.StringValue(handlerConfig, "commandPath"); err != nil {
+	if h.CommandPath, err = config.StringValue(handlerConfig, "commandPath"); err != nil && !ignoreErr {
 		return fmt.Errorf("handler: unable to configure Pdf2TextHandler '%s', parameter '%s': %w", h.Key, "commandPath", err)
 	}
 
-	h.Drupal = drupal.HttpImpl{HttpClient: drupal.DefaultClient}
+	if h.Drupal == nil {
+		h.Drupal = drupal.HttpImpl{HttpClient: drupal.DefaultClient}
+	}
 
-	h.CommandBuilder = cmd.Pdf2Text{}
+	if h.CommandBuilder == nil {
+		h.CommandBuilder = cmd.Pdf2Text{}
+	}
 
 	return nil
 }
-
 func (h *ImageMagickHandler) Handle(ctx context.Context, t *jwt.Token, b *api.MessageBody) (context.Context, error) {
 	if ctx.Value(api.MsgDestination).(string) != config.HoudiniDestination {
 		return ctx, nil

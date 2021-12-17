@@ -1,14 +1,12 @@
 package handler
 
 import (
-	"context"
 	"derivative-ms/api"
-	"derivative-ms/cmd"
 	"derivative-ms/config"
-	"github.com/cristalhq/jwt/v4"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"io/fs"
+	"os"
 	"os/exec"
 	"testing"
 )
@@ -37,54 +35,9 @@ var ffmpegDefaultConfig = map[string]interface{}{
 	},
 }
 
-type suite struct {
-	// the context.Context provided to the Handler
-	ctx ctxStruct
-	// the configuration of the Handler
-	configuration config.Configuration
-	// a client that mocks GETs and PUTs to Drupal
-	drupalClient *mockDrupal
-}
+var tesseractDefaultConfig = map[string]interface{}{}
 
-type imSuite struct {
-	suite
-	handler *ImageMagickHandler
-}
-
-type ffmpegSuite struct {
-	suite
-	handler *FFMpegHandler
-}
-
-type mutableHandler interface {
-	api.Handler
-	setCommandBuilder(c cmd.Builder)
-	setCommandPath(cmdPath string)
-}
-
-func (s imSuite) setCommandBuilder(c cmd.Builder) {
-	s.handler.CommandBuilder = c
-}
-
-func (s imSuite) setCommandPath(cmd string) {
-	s.handler.CommandPath = cmd
-}
-
-func (s imSuite) Handle(ctx context.Context, t *jwt.Token, b *api.MessageBody) (context.Context, error) {
-	return s.handler.Handle(ctx, t, b)
-}
-
-func (s ffmpegSuite) setCommandBuilder(c cmd.Builder) {
-	s.handler.CommandBuilder = c
-}
-
-func (s ffmpegSuite) setCommandPath(cmd string) {
-	s.handler.CommandPath = cmd
-}
-
-func (s ffmpegSuite) Handle(ctx context.Context, t *jwt.Token, b *api.MessageBody) (context.Context, error) {
-	return s.handler.Handle(ctx, t, b)
-}
+var pdf2TextDefaultConfig = map[string]interface{}{}
 
 func Test_ImageMagick_Suite(t *testing.T) {
 	suite, _ := newImageMagickSuite()
@@ -105,6 +58,32 @@ func Test_FFMpeg_Suite(t *testing.T) {
 	// Reset suite state between tests
 	suite, _ = newFFMpegSuite()
 	require.Nil(t, suite.handler.configure(suite.configuration, true))
+	t.Run("ExecOk", testExecOk(mutableHandler(suite), &suite.suite))
+}
+
+func Test_Tesseract_Suite(t *testing.T) {
+	suite, _ := newTesseractSuite()
+	require.Nil(t, suite.handler.configure(suite.configuration, true))
+	suite.drupalClient.get.retBody, _ = os.OpenFile("testdata/magic-tif-bytes.bin", os.O_RDONLY, os.FileMode(0775))
+	t.Run("CommandNotFound", testCommandNotFound(mutableHandler(suite), &suite.suite))
+
+	// Reset suite state between tests
+	suite, _ = newTesseractSuite()
+	require.Nil(t, suite.handler.configure(suite.configuration, true))
+	suite.drupalClient.get.retBody, _ = os.OpenFile("testdata/magic-tif-bytes.bin", os.O_RDONLY, os.FileMode(0775))
+	t.Run("ExecOk", testExecOk(mutableHandler(suite), &suite.suite))
+}
+
+func Test_Pdf2Text_Suite(t *testing.T) {
+	suite, _ := newPdf2TextSuite()
+	require.Nil(t, suite.handler.configure(suite.configuration, true))
+	suite.drupalClient.get.retBody, _ = os.OpenFile("testdata/magic-pdf-bytes.bin", os.O_RDONLY, os.FileMode(0775))
+	t.Run("CommandNotFound", testCommandNotFound(mutableHandler(suite), &suite.suite))
+
+	// Reset suite state between tests
+	suite, _ = newPdf2TextSuite()
+	require.Nil(t, suite.handler.configure(suite.configuration, true))
+	suite.drupalClient.get.retBody, _ = os.OpenFile("testdata/magic-pdf-bytes.bin", os.O_RDONLY, os.FileMode(0775))
 	t.Run("ExecOk", testExecOk(mutableHandler(suite), &suite.suite))
 }
 
@@ -176,6 +155,56 @@ func newFFMpegSuite() (*ffmpegSuite, *mockDrupal) {
 	return &ffmpegSuite{
 		suite: *s,
 		handler: &FFMpegHandler{
+			Configuration: c,
+			Drupal:        d,
+		},
+	}, d
+}
+
+func newTesseractSuite() (*tesseractSuite, *mockDrupal) {
+	destination := config.HypercubeDestination
+	configKey := "tesseractTest"
+	handlerConfig := tesseractDefaultConfig
+	messageBody := api.MessageBody{}
+
+	c := config.Configuration{
+		Key: configKey,
+		Config: &config.Config{
+			Json: map[string]interface{}{
+				configKey: handlerConfig,
+			},
+		},
+	}
+
+	s, d := newSuite(newContext("moo-msg-id", destination, messageBody), c)
+	return &tesseractSuite{
+		suite: *s,
+		handler: &TesseractHandler{
+			Configuration: c,
+			Drupal:        d,
+		},
+	}, d
+}
+
+func newPdf2TextSuite() (*pdf2TextSuite, *mockDrupal) {
+	destination := config.HypercubeDestination
+	configKey := "pdf2textTest"
+	handlerConfig := pdf2TextDefaultConfig
+	messageBody := api.MessageBody{}
+
+	c := config.Configuration{
+		Key: configKey,
+		Config: &config.Config{
+			Json: map[string]interface{}{
+				configKey: handlerConfig,
+			},
+		},
+	}
+
+	s, d := newSuite(newContext("moo-msg-id", destination, messageBody), c)
+	return &pdf2TextSuite{
+		suite: *s,
+		handler: &Pdf2TextHandler{
 			Configuration: c,
 			Drupal:        d,
 		},
