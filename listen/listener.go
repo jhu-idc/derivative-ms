@@ -38,27 +38,15 @@ func Listen(lc *ListenerConfig, handlers []api.Handler) error {
 		Debug:   lc.Verbose,
 	}
 
-	if conn, err := asDialer(stompListener).Dial(lc.BrokerHost, lc.BrokerPort, lc.DialTimeout); err != nil {
+	if conn, err := api.Dialer(stompListener).Dial(lc.BrokerHost, lc.BrokerPort, lc.DialTimeout); err != nil {
 		return err
 	} else {
 		defer conn.Close()
 	}
 
-	if err := asSubscriber(stompListener).Subscribe(lc.Queue, lc.AckMode); err != nil {
+	if err := api.Subscriber(stompListener).Subscribe(lc.Queue, lc.AckMode); err != nil {
 		return err
 	}
 
-	return asListener(stompListener).Listen(context.Background(), handlers)
-}
-
-func asDialer(l *stomp.ListenerImpl) api.Dialer {
-	return l
-}
-
-func asSubscriber(l *stomp.ListenerImpl) api.Subscriber {
-	return l
-}
-
-func asListener(l *stomp.ListenerImpl) api.Listener {
-	return l
+	return api.Listener(stompListener).Listen(context.Background(), handlers)
 }
